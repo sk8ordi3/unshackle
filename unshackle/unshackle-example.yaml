@@ -5,6 +5,11 @@ tmdb_api_key: ""
 # Get your free client ID at: https://simkl.com/settings/developer/
 simkl_client_id: ""
 
+# Optional ipinfo.io API token. When set, unshackle uses the free Lite endpoint
+# which has higher rate limits and richer IP info (ASN, org, continent).
+# Get a free token at: https://ipinfo.io/signup
+ipinfo_api_key: ""
+
 # Group or Username to postfix to the end of all download filenames following a dash
 tag: user_tag
 

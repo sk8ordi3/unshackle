@@ -119,6 +119,25 @@ simkl_client_id: "your_client_id_here"
 
 ---
 
+## ipinfo_api_key (str)
+
+Optional API token for [ipinfo.io](https://ipinfo.io). When set, unshackle uses the free authenticated **Lite** endpoint (`https://api.ipinfo.io/lite/me`), which has substantially higher rate limits than the anonymous endpoint and returns richer fields (ASN, organization name, continent). Leave empty to use the anonymous ipinfo.io endpoint, with [ip-api.in](https://ip-api.in) as a final fallback.
+
+To obtain an ipinfo.io token:
+
+1. Sign up for a free account at <https://ipinfo.io/signup>
+2. Copy the token from your dashboard
+
+For example,
+
+```yaml
+ipinfo_api_key: "12a3b45cd678ef" # Not a real key
+```
+
+**Note**: The token is only ever sent to `api.ipinfo.io` as a per-request `Authorization` header — it is never attached to your session for service requests. Used by `core/utils/ip_info.py` for region detection and proxy verification.
+
+---
+
 ## title_cache_enabled (bool)
 
 Enable/disable caching of title metadata to reduce redundant API calls. Default: `true`.

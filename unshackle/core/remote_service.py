@@ -481,9 +481,9 @@ class RemoteService:
 
         if not no_proxy and not proxy:
             try:
-                from unshackle.core.utilities import get_cached_ip_info
+                from unshackle.core.utils.ip_info import get_ip_info
 
-                ip_info = get_cached_ip_info(self._session)
+                ip_info = get_ip_info(self._session, cached=True)
                 if ip_info and ip_info.get("country"):
                     create_data["client_region"] = ip_info["country"].lower()
             except Exception:

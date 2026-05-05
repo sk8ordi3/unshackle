@@ -29,7 +29,7 @@ from unshackle.core.title_cacher import TitleCacher, get_account_hash, get_regio
 from unshackle.core.titles import Title_T, Titles_T
 from unshackle.core.tracks import Chapters, Tracks
 from unshackle.core.tracks.video import Video
-from unshackle.core.utilities import get_cached_ip_info, get_ip_info
+from unshackle.core.utils.ip_info import get_ip_info
 
 
 @dataclass
@@ -232,7 +232,7 @@ class Service(metaclass=ABCMeta):
             else:
                 # No proxy, use cached IP info for title caching (non-critical)
                 try:
-                    ip_info = get_cached_ip_info(self.session)
+                    ip_info = get_ip_info(self.session, cached=True)
                     self.current_region = ip_info.get("country", "").lower() if ip_info else None
                 except Exception as e:
                     self.log.debug(f"Failed to get cached IP info: {e}")

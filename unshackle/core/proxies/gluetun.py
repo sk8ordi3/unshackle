@@ -13,7 +13,8 @@ import requests
 
 from unshackle.core import binaries
 from unshackle.core.proxies.proxy import Proxy
-from unshackle.core.utilities import get_country_code, get_country_name, get_debug_logger, get_ip_info
+from unshackle.core.utilities import get_country_code, get_country_name, get_debug_logger
+from unshackle.core.utils.ip_info import get_ip_info
 
 # Global registry for cleanup on exit
 _gluetun_instances: list["Gluetun"] = []

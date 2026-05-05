@@ -1986,9 +1986,9 @@ def _resolve_handler_proxy(data: Dict[str, Any], normalized_service: str) -> tup
     client_region = data.get("client_region")
     if not proxy_param and not no_proxy and client_region and proxy_providers:
         try:
-            from unshackle.core.utilities import get_cached_ip_info
+            from unshackle.core.utils.ip_info import get_ip_info
 
-            server_ip_info = get_cached_ip_info(None)
+            server_ip_info = get_ip_info(None, cached=True)
             server_region = server_ip_info.get("country", "").lower() if server_ip_info else None
         except Exception:
             server_region = None

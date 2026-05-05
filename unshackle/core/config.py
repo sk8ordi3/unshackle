@@ -93,6 +93,7 @@ class Config:
         self.tmdb_api_key: str = kwargs.get("tmdb_api_key") or ""
         self.simkl_client_id: str = kwargs.get("simkl_client_id") or ""
         self.decrypt_labs_api_key: str = kwargs.get("decrypt_labs_api_key") or ""
+        self.ipinfo_api_key: str = kwargs.get("ipinfo_api_key") or ""
         self.update_checks: bool = kwargs.get("update_checks", True)
         self.update_check_interval: int = kwargs.get("update_check_interval", 24)
 
