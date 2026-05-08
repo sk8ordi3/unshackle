@@ -13,6 +13,7 @@ unshackle serve                          # Default: localhost:8786
 unshackle serve -h 0.0.0.0 -p 8888      # Listen on all interfaces
 unshackle serve --no-key                 # Disable authentication
 unshackle serve --api-only               # REST API only, no CDM endpoints
+unshackle serve --remote-only            # Only expose remote service session endpoints
 ```
 
 ### CLI Options
@@ -28,22 +29,34 @@ unshackle serve --api-only               # REST API only, no CDM endpoints
 | `--no-key` | `false` | Disable API key authentication (allows all requests) |
 | `--debug-api` | `false` | Include tracebacks and stderr in API error responses |
 | `--debug` | `false` | Enable debug logging for API operations |
+| `--remote-only` | `false` | Only expose remote service session endpoints (health, services, search, session) |
 
 ### Configuration
 
-- `api_secret` - Secret key for REST API authentication. Required unless `--no-key` is used. All API requests must include this key via the `X-API-Key` header or `api_key` query parameter.
+- `api_secret` - Secret key for REST API authentication. Required unless `--no-key` is used. All API requests must include this key via the `X-Secret-Key` header.
+- `compression_level` - Compression level for API payloads (manifests, cache, cookies). `0`=off, `1`=fast, `6`=balanced, `9`=max. Default: `1`.
+- `session_ttl` - Session inactivity timeout in seconds. Each request resets the timer. Default: `300`.
+- `max_sessions` - Maximum concurrent sessions before the oldest is evicted. Default: `100`.
+- `services` - Optional global service allowlist. Only these service tags are exposed. If omitted, all services are available.
 - `devices` - List of Widevine device files (.wvd). If not specified, auto-populated from the WVDs directory.
 - `playready_devices` - List of PlayReady device files (.prd). If not specified, auto-populated from the PRDs directory.
 - `users` - Dictionary mapping user secret keys to their access configuration:
   - `devices` - List of Widevine devices this user can access
   - `playready_devices` - List of PlayReady devices this user can access
   - `username` - Internal logging name for the user (not visible to users)
+  - `services` - Optional per-user service allowlist. Effective access is the intersection of global and per-user allowlists.
 
 For example,
 
 ```yaml
 serve:
   api_secret: "your-secret-key-here"
+  compression_level: 1
+  session_ttl: 300
+  max_sessions: 100
+  # services:           # global allowlist (optional)
+  #   - EXAMPLE1
+  #   - EXAMPLE2
   users:
     secret_key_for_jane: # 32bit hex recommended, case-sensitive
       devices: # list of allowed Widevine devices for this user
@@ -51,18 +64,18 @@ serve:
       playready_devices: # list of allowed PlayReady devices for this user
         - my_playready_device
       username: jane # only for internal logging, users will not see this name
+      # services:        # per-user allowlist (optional)
+      #   - EXAMPLE1
     secret_key_for_james:
       devices:
         - generic_nexus_4464_l3
       username: james
-    secret_key_for_john:
-      devices:
-        - generic_nexus_4464_l3
-      username: john
   # devices can be manually specified by path if you don't want to add it to
   # unshackle's WVDs directory for whatever reason
   # devices:
   #   - 'C:\Users\john\Devices\test_devices_001.wvd'
+  # playready_devices:
+  #   - '/path/to/device.prd'
 ```
 
 ### REST API
@@ -131,5 +144,53 @@ Check for updates from the GitHub repository on startup. Default: `true`.
 ## update_check_interval (int)
 
 How often to check for updates, in hours. Default: `24`.
+
+---
+
+## title_cache_enabled (bool)
+
+Enable or disable title metadata caching globally. Default: `true`.
+
+---
+
+## title_cache_time (int)
+
+Title cache duration in seconds. Default: `1800` (30 minutes).
+
+---
+
+## title_cache_max_retention (int)
+
+Maximum cache retention in seconds, used as fallback when the upstream API fails. Default: `86400` (24 hours).
+
+---
+
+## unicode_filenames (bool)
+
+When `false`, replaces non-ASCII characters in output filenames with ASCII equivalents. Default: `false`.
+
+---
+
+## ipinfo_api_key (str)
+
+Optional ipinfo.io token. When set, unshackle uses the ipinfo.io Lite endpoint for IP/geolocation lookups instead of the unauthenticated fallback.
+
+---
+
+## tmdb_api_key (str)
+
+Optional TMDB API key, used for metadata enrichment and IMDb/TMDb tagging.
+
+---
+
+## simkl_client_id (str)
+
+Optional Simkl client ID for metadata lookups.
+
+---
+
+## decrypt_labs_api_key (str)
+
+Optional Decrypt Labs API key, used by services that integrate with the service.
 
 ---
