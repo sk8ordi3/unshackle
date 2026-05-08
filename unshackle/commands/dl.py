@@ -1663,7 +1663,7 @@ class dl:
                             ]
 
                             # Apply hybrid selection to HDR10+DV tracks
-                            hybrid_filter = title.tracks.select_hybrid(hybrid_candidate_tracks, quality)
+                            hybrid_filter = title.tracks.select_hybrid(hybrid_candidate_tracks, quality, worst=worst)
                             hybrid_selected = list(filter(hybrid_filter, hybrid_candidate_tracks))
 
                             if non_hybrid_ranges and non_hybrid_tracks:
@@ -1718,12 +1718,14 @@ class dl:
                         if not quality:
                             best_resolution = max((v.height for v in hybrid_candidate_tracks), default=None)
                             if best_resolution:
-                                hybrid_filter = title.tracks.select_hybrid(hybrid_candidate_tracks, [best_resolution])
+                                hybrid_filter = title.tracks.select_hybrid(
+                                    hybrid_candidate_tracks, [best_resolution], worst=worst
+                                )
                                 hybrid_selected = list(filter(hybrid_filter, hybrid_candidate_tracks))
                             else:
                                 hybrid_selected = []
                         else:
-                            hybrid_filter = title.tracks.select_hybrid(hybrid_candidate_tracks, quality)
+                            hybrid_filter = title.tracks.select_hybrid(hybrid_candidate_tracks, quality, worst=worst)
                             hybrid_selected = list(filter(hybrid_filter, hybrid_candidate_tracks))
 
                         # For non-hybrid ranges, apply Cartesian product selection

@@ -316,7 +316,7 @@ class Tracks:
         new_tracks.attachments = list(self.attachments)
         return new_tracks
 
-    def select_hybrid(self, tracks, quality):
+    def select_hybrid(self, tracks, quality, worst: bool = False):
         # Prefer HDR10+ over HDR10 as the base layer (preserves dynamic metadata)
         base_ranges = (Video.Range.HDR10P, Video.Range.HDR10)
         base_tracks = []
@@ -327,12 +327,13 @@ class Tracks:
             if base_tracks:
                 break
 
+        pick = min if worst else max
         base_selected = []
         for res in quality:
             candidates = [v for v in base_tracks if v.height == res or int(v.width * 9 / 16) == res]
             if candidates:
-                best = max(candidates, key=lambda v: v.bitrate)
-                base_selected.append(best)
+                chosen = pick(candidates, key=lambda v: v.bitrate)
+                base_selected.append(chosen)
 
         dv_tracks = [v for v in tracks if v.range == Video.Range.DV]
         lowest_dv = min(dv_tracks, key=lambda v: v.height) if dv_tracks else None
