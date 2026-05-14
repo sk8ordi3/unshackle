@@ -145,12 +145,16 @@ class Title:
 
             features = primary_audio_track.format_additionalfeatures or ""
 
+            has_atmos = any(
+                "JOC" in (t.format_additionalfeatures or "") or t.joc for t in media_info.audio_tracks
+            )
+
             context.update(
                 {
                     "audio": AUDIO_CODEC_MAP.get(codec, codec),
                     "audio_channels": f"{channels:.1f}",
                     "audio_full": f"{AUDIO_CODEC_MAP.get(codec, codec)}{channels:.1f}",
-                    "atmos": "Atmos" if ("JOC" in features or primary_audio_track.joc) else "",
+                    "atmos": "Atmos" if has_atmos else "",
                 }
             )
 
