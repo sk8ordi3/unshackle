@@ -17,6 +17,7 @@ import requests
 from requests.adapters import HTTPAdapter, Retry
 from rich.padding import Padding
 from rich.rule import Rule
+from rich.text import Text
 
 from unshackle.core.cacher import Cacher
 from unshackle.core.config import config
@@ -359,13 +360,16 @@ class Service(metaclass=ABCMeta):
     def request_input(self, prompt: str) -> str:
         """Request interactive input from the user.
 
-        When running locally (CLI), falls back to ``input()``.
+        When running locally (CLI), prompts via the shared rich console so the
+        prompt renders correctly alongside Live progress / log handlers.
         When running in serve mode with an :class:`InputBridge` attached,
         delegates to the bridge which relays the prompt to the remote client.
         """
         if self._input_bridge is not None:
             return self._input_bridge.request_input(prompt)
-        return input(prompt)
+        indent = " " * 5
+        padded = indent + prompt.replace("\n", "\n" + indent)
+        return console.input(Text(padded, style="text"))
 
     def search(self) -> Generator[SearchResult, None, None]:
         """
