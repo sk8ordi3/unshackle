@@ -367,6 +367,67 @@ class Video(Track):
         self.path = output_path
         original_path.unlink()
 
+    def normalize_vui(self) -> bool:
+        """Rewrite SPS VUI colour metadata to match ``self.range``.
+
+        Some services ship HDR10/HLG bitstreams with stale BT.709 VUI, which makes
+        downstream tools mis-classify the file. The manifest-derived range is the
+        source of truth. Skips SDR, DV, and HYBRID. Returns True if the bitstream
+        was rewritten.
+        """
+        if not self.path or not self.path.exists():
+            return False
+        if self.codec not in (Video.Codec.AVC, Video.Codec.HEVC):
+            return False
+        if self.range in (Video.Range.SDR, Video.Range.DV, Video.Range.HYBRID):
+            return False
+
+        vui = {
+            Video.Range.HDR10: (9, 16, 9),
+            Video.Range.HDR10P: (9, 16, 9),
+            Video.Range.HLG: (9, 18, 9),
+        }.get(self.range)
+        if not vui:
+            return False
+
+        if not binaries.FFMPEG:
+            raise EnvironmentError('FFmpeg executable "ffmpeg" was not found but is required for this call.')
+
+        primaries, transfer, matrix = vui
+        filter_key = {Video.Codec.AVC: "h264_metadata", Video.Codec.HEVC: "hevc_metadata"}[self.codec]
+        bsf = (
+            f"{filter_key}=colour_primaries={primaries}"
+            f":transfer_characteristics={transfer}"
+            f":matrix_coefficients={matrix}"
+        )
+
+        original_path = self.path
+        output_path = original_path.with_stem(f"{original_path.stem}_vui")
+        try:
+            subprocess.run(
+                [
+                    binaries.FFMPEG,
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-i",
+                    str(original_path),
+                    "-codec",
+                    "copy",
+                    "-bsf:v",
+                    bsf,
+                    str(output_path),
+                ],
+                check=True,
+            )
+        except subprocess.CalledProcessError:
+            output_path.unlink(missing_ok=True)
+            return False
+
+        self.path = output_path
+        original_path.unlink()
+        return True
+
     def ccextractor(
         self, track_id: Any, out_path: Union[Path, str], language: Language, original: bool = False
     ) -> Optional[Subtitle]:

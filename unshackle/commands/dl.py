@@ -2310,6 +2310,13 @@ class dl:
                         # we don't want to fill up the log with "Repacked x track"
                         self.log.info("Repacked one or more tracks with FFMPEG")
 
+                with console.status("Normalizing video VUI..."):
+                    for track in title.tracks.videos:
+                        try:
+                            track.normalize_vui()
+                        except Exception as e:  # noqa: BLE001
+                            self.log.warning(f"VUI normalization skipped for {track.id}: {e}")
+
                 muxed_paths = []
                 muxed_audio_codecs: dict[Path, Optional[Audio.Codec]] = {}
                 append_audio_codec_suffix = True
