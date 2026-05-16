@@ -853,6 +853,10 @@ class DASH:
     def get_video_range(
         codecs: str, all_supplemental_props: list[Element], all_essential_props: list[Element]
     ) -> Video.Range:
+        # TODO: Detect Dolby Vision composite streams in DASH manifests (DV RPU embedded but
+        # primary codec is plain hvc1, signaled via a separate AdaptationSet/Representation
+        # with DV codec strings or DolbyVisionConfigurationBox). When found, mark the track
+        # with dv_compatible_bitstream=True so DVFixup runs pre-mux. No DASH samples seen yet.
         if codecs.startswith(("dva1", "dvav", "dvhe", "dvh1")):
             return Video.Range.DV
 

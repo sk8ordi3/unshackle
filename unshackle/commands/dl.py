@@ -53,6 +53,7 @@ from unshackle.core.titles import Movie, Movies, Series, Song, Title_T
 from unshackle.core.titles.episode import Episode
 from unshackle.core.tracks import Audio, Subtitle, Tracks, Video
 from unshackle.core.tracks.attachment import Attachment
+from unshackle.core.tracks.dv_fixup import apply_dv_fixup
 from unshackle.core.tracks.hybrid import Hybrid
 from unshackle.core.utilities import (find_font_with_fallbacks, get_debug_logger, get_system_fonts, init_debug_logger,
                                       is_close_match, suggest_font_packages, time_elapsed_since)
@@ -2433,6 +2434,9 @@ class dl:
                     else:
                         # Normal mode: process each video track separately
                         for video_track in title.tracks.videos or [None]:
+                            if video_track and getattr(video_track, "dv_compatible_bitstream", False):
+                                apply_dv_fixup(video_track)
+
                             task_description = "Multiplexing"
                             if video_track:
                                 if len(quality) > 1:

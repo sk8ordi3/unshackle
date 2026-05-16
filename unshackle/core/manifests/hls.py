@@ -5,6 +5,7 @@ import html
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -36,8 +37,14 @@ from unshackle.core.utilities import get_debug_logger, get_extension, is_close_m
 
 
 class HLS:
+    SUPP_CODECS_RE = re.compile(r'SUPPLEMENTAL-CODECS="([^"]+)"', re.IGNORECASE)
+
     def __init__(
-        self, manifest: M3U8, session: Optional[Union[Session, RnetSession]] = None, url: Optional[str] = None
+        self,
+        manifest: M3U8,
+        session: Optional[Union[Session, RnetSession]] = None,
+        url: Optional[str] = None,
+        raw_text: Optional[str] = None,
     ):
         if not manifest:
             raise ValueError("HLS manifest must be provided.")
@@ -49,6 +56,7 @@ class HLS:
         self.manifest = manifest
         self.session = session or Session()
         self.url = url
+        self.raw_text = raw_text
 
     @classmethod
     def from_url(cls, url: str, session: Optional[Union[Session, RnetSession]] = None, **args: Any) -> HLS:
@@ -78,7 +86,7 @@ class HLS:
 
         master = m3u8.loads(content, uri=url)
 
-        return cls(master, session, url=url)
+        return cls(master, session, url=url, raw_text=content)
 
     @classmethod
     def from_text(cls, text: str, url: str) -> HLS:
@@ -94,7 +102,31 @@ class HLS:
 
         master = m3u8.loads(text, uri=url)
 
-        return cls(master)
+        return cls(master, raw_text=text)
+
+    def supplemental_codecs_by_uri(self) -> dict[str, str]:
+        """Map each variant URI to its SUPPLEMENTAL-CODECS value.
+
+        python-m3u8 drops this attribute, so we re-parse the raw text to recover it for
+        Dolby Vision composite detection (dvh1.08.x advertised only in SUPPLEMENTAL-CODECS
+        while primary CODECS stays plain hvc1).
+        """
+        if not self.raw_text:
+            return {}
+        out: dict[str, str] = {}
+        lines = self.raw_text.splitlines()
+        for i, line in enumerate(lines):
+            if not line.startswith("#EXT-X-STREAM-INF"):
+                continue
+            supp_match = self.SUPP_CODECS_RE.search(line)
+            if not supp_match:
+                continue
+            for j in range(i + 1, len(lines)):
+                uri = lines[j].strip()
+                if uri and not uri.startswith("#"):
+                    out[uri] = supp_match.group(1)
+                    break
+        return out
 
     def to_tracks(self, language: Union[str, Language]) -> Tracks:
         """
@@ -126,6 +158,9 @@ class HLS:
                 )
         tracks = Tracks()
 
+        supplemental_codecs = self.supplemental_codecs_by_uri()
+        dv_supp_prefixes = ("dva1", "dvav", "dvhe", "dvh1")
+
         for playlist in self.manifest.playlists:
             audio_group = playlist.stream_info.audio
             audio_codec: Optional[Audio.Codec] = None
@@ -146,6 +181,26 @@ class HLS:
             else:
                 primary_track_type = Video
 
+            primary_codecs = (playlist.stream_info.codecs or "").lower()
+            primary_has_dv = any(codec.split(".")[0] in dv_supp_prefixes for codec in primary_codecs.split(","))
+
+            supp_codecs_str = supplemental_codecs.get(playlist.uri, "")
+            supp_dv_codec: Optional[str] = None
+            for codec in supp_codecs_str.lower().split(","):
+                token = codec.strip().split("/")[0]
+                if token.split(".")[0] in dv_supp_prefixes:
+                    supp_dv_codec = token
+                    break
+
+            video_range = (
+                Video.Range.DV if primary_has_dv else Video.Range.from_m3u_range_tag(playlist.stream_info.video_range)
+            )
+            # DV-composite track: primary codec is plain HEVC but SUPPLEMENTAL-CODECS advertises
+            # a DV codec. Range stays whatever VIDEO-RANGE signaled (HDR10/HLG/SDR); DVFixup will
+            # restore DV signaling post-download. Services that know their encoder embeds HDR10+
+            # SEI must override `range` themselves (see services/ATV).
+            dv_compatible_bitstream = primary_track_type is Video and not primary_has_dv and supp_dv_codec is not None
+
             tracks.add(
                 primary_track_type(
                     id_=hex(crc32(str(playlist).encode()))[2:],
@@ -164,18 +219,14 @@ class HLS:
                     # video track args
                     **(
                         dict(
-                            range_=Video.Range.DV
-                            if any(
-                                codec.split(".")[0] in ("dva1", "dvav", "dvhe", "dvh1")
-                                for codec in (playlist.stream_info.codecs or "").lower().split(",")
-                            )
-                            else Video.Range.from_m3u_range_tag(playlist.stream_info.video_range),
+                            range_=video_range,
                             width=playlist.stream_info.resolution[0] if playlist.stream_info.resolution else None,
                             height=playlist.stream_info.resolution[1] if playlist.stream_info.resolution else None,
                             fps=playlist.stream_info.frame_rate,
                             closed_captions=cc_by_group_id.get(
                                 (playlist.stream_info.closed_captions or "").strip('"'), []
                             ),
+                            dv_compatible_bitstream=dv_compatible_bitstream,
                         )
                         if primary_track_type is Video
                         else {}

@@ -228,6 +228,7 @@ class Video(Track):
         fps: Optional[Union[str, int, float]] = None,
         scan_type: Optional[Video.ScanType] = None,
         closed_captions: Optional[list[dict[str, Any]]] = None,
+        dv_compatible_bitstream: bool = False,
         **kwargs: Any,
     ) -> None:
         """
@@ -294,6 +295,7 @@ class Video(Track):
         self.scan_type = scan_type
         self.closed_captions: list[dict[str, Any]] = closed_captions or []
         self.needs_duration_fix = False
+        self.dv_compatible_bitstream = dv_compatible_bitstream
 
     def __str__(self) -> str:
         return " | ".join(
