@@ -422,6 +422,14 @@ curl_impersonate:
   browser: chrome120
 
 # Pre-define default options and switches of the dl command
+# Audio track selection preferences
+audio:
+  # Codec priority order used as a tiebreaker when multiple audio tracks share the same
+  # bitrate and language. Listed codecs are ranked in the order given; codecs not in the
+  # list keep their bitrate-based ordering and are placed after all listed codecs.
+  # Atmos still trumps codec priority. Valid names: AAC, AC3, EC3, AC4, OPUS, OGG, DTS, ALAC, FLAC.
+  # codec_priority: [FLAC, ALAC, AC4, EC3, DTS, AC3, OPUS, AAC, OGG]
+
 dl:
   sub_format: srt
   downloads: 4

@@ -1562,7 +1562,10 @@ class dl:
                             processed_audio_sort_lang.append(language)
 
                 title.tracks.sort_videos(by_language=processed_video_sort_lang)
-                title.tracks.sort_audio(by_language=processed_audio_sort_lang)
+                title.tracks.sort_audio(
+                    by_language=processed_audio_sort_lang,
+                    codec_priority=config.audio.get("codec_priority"),
+                )
                 title.tracks.sort_subtitles(by_language=s_lang)
 
             if list_:

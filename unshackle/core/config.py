@@ -71,6 +71,7 @@ class Config:
         for name, filename in (kwargs.get("filenames") or {}).items():
             setattr(self.filenames, name, filename)
 
+        self.audio: dict = kwargs.get("audio") or {}
         self.headers: dict = kwargs.get("headers") or {}
         self.key_vaults: list[dict[str, Any]] = kwargs.get("key_vaults", [])
         self.muxing: dict = kwargs.get("muxing") or {}

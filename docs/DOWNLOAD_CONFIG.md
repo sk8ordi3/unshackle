@@ -168,6 +168,41 @@ dl:
 
 ---
 
+## audio (dict)
+
+Configuration for audio track selection.
+
+- `codec_priority`
+  Optional list of audio codec names defining the preferred order when multiple audio
+  tracks share the same bitrate and language. Listed codecs are ranked in the order given.
+  Codecs not in the list retain their bitrate-based ordering and are placed after all
+  listed codecs (i.e. soft priority — nothing is dropped).
+
+  Atmos tracks still take precedence over codec priority, and audio description tracks
+  are still moved to the end.
+
+  Valid codec names: `AAC`, `AC3`, `EC3`, `AC4`, `OPUS`, `OGG`, `DTS`, `ALAC`, `FLAC`.
+
+For example,
+
+```yaml
+audio:
+  codec_priority: [FLAC, ALAC, AC4, EC3, DTS, AC3, OPUS, AAC, OGG]
+```
+
+Or to only prefer a subset (e.g. surround codecs first, everything else falls back to
+bitrate order):
+
+```yaml
+audio:
+  codec_priority: [EC3, DTS, AC3, AAC]
+```
+
+When unset, audio tracks are sorted by bitrate alone (with Atmos/descriptive rules still
+applied).
+
+---
+
 ## subtitle (dict)
 
 Configuration for subtitle processing and conversion.
