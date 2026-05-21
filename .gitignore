@@ -13,6 +13,9 @@ update_check.json
 *.pem
 *.bin
 *.db
+*.db-shm
+*.db-wal
+*.db-journal
 *.ttf
 *.otf
 device_cert
