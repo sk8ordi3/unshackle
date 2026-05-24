@@ -2921,8 +2921,20 @@ class dl:
             return default_cookie_file
 
     @staticmethod
-    def get_cookie_jar(service: str, profile: Optional[str]) -> Optional[MozillaCookieJar]:
+    def get_cookie_jar(service: str, profile: Optional[str]) -> Optional[CookieJar]:
         """Get Service Cookies for Profile."""
+        # Check if automatic Firefox cookie extraction is configured for this service
+        ff_settings = getattr(config, "firefox_cookies", {}).get(service)
+        if ff_settings:
+            try:
+                from unshackle.core.utils.firefox_cookie_extractor import get_firefox_cookies
+                extracted_jar = get_firefox_cookies(ff_settings)
+                if extracted_jar:
+                    return extracted_jar
+            except Exception:
+                # Fallback to file-based if Firefox extraction fails
+                pass
+
         cookie_file = dl.get_cookie_path(service, profile)
         if cookie_file:
             cookie_jar = MozillaCookieJar(cookie_file)
@@ -2939,6 +2951,8 @@ class dl:
             cookie_file.write_text(cookie_data, "utf8")
             cookie_jar.load(ignore_discard=True, ignore_expires=True)
             return cookie_jar
+            
+        return None
 
     @staticmethod
     def save_cookies(path: Path, cookies: CookieJar):
