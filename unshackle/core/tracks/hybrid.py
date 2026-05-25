@@ -6,6 +6,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 from rich.padding import Padding
 from rich.rule import Rule
@@ -341,11 +342,7 @@ class Hybrid:
         for crop in crop_results:
             crop_counts[crop] = crop_counts.get(crop, 0) + 1
         most_common = max(crop_counts, key=crop_counts.get)
-        left, top, right, bottom = most_common
-
-        # If all borders are 0 there's nothing to correct
-        if left == 0 and top == 0 and right == 0 and bottom == 0:
-            return
+        left, top, right, bottom = most_common      # frame instead of leaving phantom bars from the source.
 
         l5_json = {
             "active_area": {
@@ -390,8 +387,24 @@ class Hybrid:
             )
         self.rpu_file = "RPU_L5.bin"
 
+    @staticmethod
+    def sanitize_l6(
+        max_mdl: Optional[int], min_mdl: Optional[int], max_cll: Optional[int], max_fall: Optional[int]
+    ) -> tuple[Optional[int], Optional[int], Optional[int], Optional[int]]:
+        """Clamp static L6 values to a valid relationship.
+
+        MaxCLL must not exceed the mastering-display peak (some sources, e.g. ATV
+        HDR10+, ship MaxCLL 10000 on a 1000-nit master), and MaxFALL must not exceed
+        MaxCLL. A value of 0 means "unknown" and is preserved as-is.
+        """
+        if max_mdl and max_cll and max_cll > max_mdl:
+            max_cll = max_mdl
+        if max_cll and max_fall and max_fall > max_cll:
+            max_fall = max_cll
+        return max_mdl, min_mdl, max_cll, max_fall
+
     def level_6(self):
-        """Edit RPU Level 6 values using actual luminance data from the RPU."""
+        """Edit RPU Level 6 values using the static L6 luminance data from the RPU."""
         if os.path.isfile(config.directories.temp / "RPU_L6.bin"):
             return
 
@@ -413,17 +426,33 @@ class Hybrid:
         max_mdl = None
         min_mdl = None
 
+        in_l6 = False
         for line in info_text.splitlines():
-            if "RPU content light level (L1):" in line:
-                parts = line.split("MaxCLL:")[1].split(",")
-                max_cll = int(float(parts[0].strip().split()[0]))
-                if len(parts) > 1 and "MaxFALL:" in parts[1]:
-                    max_fall = int(float(parts[1].split("MaxFALL:")[1].strip().split()[0]))
-            elif "RPU mastering display:" in line:
-                mastering = line.split(":", 1)[1].strip()
+            stripped = line.strip()
+            if "L6 metadata" in stripped:
+                in_l6 = True
+            if stripped.startswith("RPU mastering display:"):
+                mastering = stripped.split(":", 1)[1].strip()
                 min_lum, max_lum = mastering.split("/")[0], mastering.split("/")[1].split(" ")[0]
                 min_mdl = int(float(min_lum) * 10000)
                 max_mdl = int(float(max_lum))
+            elif in_l6 and "MaxCLL:" in stripped and max_cll is None:
+                max_cll = int(float(stripped.split("MaxCLL:")[1].split("nits")[0].strip().rstrip(",")))
+                if "MaxFALL:" in stripped:
+                    max_fall = int(float(stripped.split("MaxFALL:")[1].split("nits")[0].strip().rstrip(",")))
+
+        if any(v is None for v in (max_cll, max_fall, max_mdl, min_mdl)):
+            base_max_mdl, base_min_mdl, base_cll, base_fall = self._probe_hdr_metadata()
+            if max_cll is None:
+                max_cll = base_cll
+            if max_fall is None:
+                max_fall = base_fall
+            if max_mdl is None:
+                max_mdl = base_max_mdl
+            if min_mdl is None:
+                min_mdl = base_min_mdl
+
+        max_mdl, min_mdl, max_cll, max_fall = self.sanitize_l6(max_mdl, min_mdl, max_cll, max_fall)
 
         if any(v is None for v in (max_cll, max_fall, max_mdl, min_mdl)):
             if self.debug_logger:
@@ -638,6 +667,7 @@ class Hybrid:
         with console.status("Converting HDR10+ metadata to Dolby Vision...", spinner="dots"):
             # Extract actual HDR metadata from the source stream
             max_mdl, min_mdl, max_cll, max_fall = self._probe_hdr_metadata()
+            max_mdl, min_mdl, max_cll, max_fall = self.sanitize_l6(max_mdl, min_mdl, max_cll, max_fall)
 
             # First create the extra metadata JSON for dovi_tool
             extra_metadata = {
