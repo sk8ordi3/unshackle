@@ -6,7 +6,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 This changelog is automatically generated using [git-cliff](https://git-cliff.org).
 
-## [5.1.0] - 2026-05-26
+## [5.1.0] - 2026-05-29
 
 ### Features
 
@@ -22,6 +22,8 @@ This changelog is automatically generated using [git-cliff](https://git-cliff.or
 - *dl*: Gate s_lang/a_lang miss behind --best-available
 - *dl*: Add real bitrate probing (-rvb/-rab)
 - *import*: Reconstruct downloads from an --export sidecar
+- *naming*: Per-service title_map remapping
+- *import*: Include cover-art attachments in --export/--import
 
 ### Bug Fixes
 
@@ -41,6 +43,9 @@ This changelog is automatically generated using [git-cliff](https://git-cliff.or
 - *vaults*: Enable WAL on SQLite vault to fix concurrent locks
 - *hybrid*: Correct static L6 source and reset stale L5 active area
 - *cli*: Report broken command/service loads once and cleanly
+- *hls*: Resolve per-rendition KID in no-EXT-X-KEY fallback
+- *dash*: Inherit SegmentTemplate attributes across AdaptationSet/Representation
+- *dl*: Mux all requested ranges and select highest DV alongside hybrid
 
 ### Documentation
 
@@ -51,6 +56,10 @@ This changelog is automatically generated using [git-cliff](https://git-cliff.or
 
 - *routes, subtitle, track*: Improve code readability by formatting list structures
 - *hybrid*: Extract dovi_tool and run_step helpers
+- *ip_info*: Simplify lookup and trim cache
+- *example*: Showcase full unshackle feature surface
+- *dl*: Declare hybrid_base_only flag and extract standalone mux helper
+- Remove dead aria2c and n_m3u8dl_re downloader code
 
 ### Maintenance
 
@@ -123,6 +132,7 @@ This changelog is automatically generated using [git-cliff](https://git-cliff.or
 
 ### Maintenance
 
+- *gitignore*: Ignore binary files in unshackle/binaries/
 - Update version to 5.0.0
 
 ## [4.0.0] - 2026-03-17
@@ -673,7 +683,7 @@ This changelog is automatically generated using [git-cliff](https://git-cliff.or
 - Reorganize Planned Features section in README for clarity
 - Improve track selection logic in dl.py
 
-[5.1.0]: https://github.com/unshackle-dl/unshackle/compare/5.0.0..5.1.0
+[unreleased]: https://github.com/unshackle-dl/unshackle/compare/5.0.0..HEAD
 [5.0.0]: https://github.com/unshackle-dl/unshackle/compare/4.0.0..5.0.0
 [4.0.0]: https://github.com/unshackle-dl/unshackle/compare/3.0.0..4.0.0
 [3.0.0]: https://github.com/unshackle-dl/unshackle/compare/2.3.0..3.0.0
