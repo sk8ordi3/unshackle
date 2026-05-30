@@ -413,7 +413,7 @@ def serialize_video_track(track: Video, include_url: bool = False) -> Dict[str, 
     codec_name = track.codec.name if hasattr(track.codec, "name") else str(track.codec)
     range_name = track.range.name if hasattr(track.range, "name") else str(track.range)
 
-    # Get descriptor for N_m3u8DL-RE compatibility (HLS, DASH, URL, etc.)
+    # Serialize the manifest descriptor (HLS, DASH, URL, etc.)
     descriptor_name = None
     if hasattr(track, "descriptor") and track.descriptor:
         descriptor_name = track.descriptor.name if hasattr(track.descriptor, "name") else str(track.descriptor)
@@ -442,7 +442,7 @@ def serialize_audio_track(track: Audio, include_url: bool = False) -> Dict[str, 
     """Convert audio track to JSON-serializable dict."""
     codec_name = track.codec.name if hasattr(track.codec, "name") else str(track.codec)
 
-    # Get descriptor for N_m3u8DL-RE compatibility
+    # Serialize the manifest descriptor (HLS, DASH, URL, etc.)
     descriptor_name = None
     if hasattr(track, "descriptor") and track.descriptor:
         descriptor_name = track.descriptor.name if hasattr(track.descriptor, "name") else str(track.descriptor)

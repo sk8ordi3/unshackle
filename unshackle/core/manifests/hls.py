@@ -491,39 +491,6 @@ class HLS:
         return None
 
     @staticmethod
-    def _finalize_n_m3u8dl_re_output(*, track: AnyTrack, save_dir: Path, save_path: Path) -> Path:
-        """
-        Finalize output from N_m3u8DL-RE.
-
-        We call N_m3u8DL-RE with `--save-name track.id`, so the final file should be `{track.id}.*` under `save_dir`.
-        This moves that output to `save_path` (preserving the real suffix) and, for subtitles, updates `track.codec`
-        to match the produced file extension.
-        """
-        matches = [p for p in save_dir.rglob(f"{track.id}.*") if p.is_file()]
-        if not matches:
-            raise FileNotFoundError(f"No output files produced by N_m3u8DL-RE for save-name={track.id} in: {save_dir}")
-
-        primary = max(matches, key=lambda p: p.stat().st_size)
-
-        final_save_path = save_path.with_suffix(primary.suffix) if primary.suffix else save_path
-
-        final_save_path.parent.mkdir(parents=True, exist_ok=True)
-        if primary.absolute() != final_save_path.absolute():
-            final_save_path.unlink(missing_ok=True)
-            shutil.move(str(primary), str(final_save_path))
-
-        if isinstance(track, Subtitle):
-            ext = final_save_path.suffix.lower().lstrip(".")
-            try:
-                track.codec = Subtitle.Codec.from_mime(ext)
-            except ValueError:
-                pass
-
-        shutil.rmtree(save_dir, ignore_errors=True)
-
-        return final_save_path
-
-    @staticmethod
     def download_track(
         track: AnyTrack,
         save_path: Path,

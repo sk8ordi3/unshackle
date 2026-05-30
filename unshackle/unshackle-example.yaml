@@ -395,29 +395,13 @@ key_vaults:
   #   no_push: false  # Default behavior - vault both provides and receives keys
 
 # Choose what software to use to download data
-downloader: aria2c
-# Options: requests | aria2c | curl_impersonate | n_m3u8dl_re
-# Can also be a mapping:
-# downloader:
-#   NF: requests
-#   AMZN: n_m3u8dl_re
-#   DSNP: n_m3u8dl_re
-#   default: requests
+downloader: requests
+# Options: requests
+# Downloading now uses the unified in-process requests/rnet downloader; the legacy
+# aria2c, curl_impersonate, and n_m3u8dl_re backends have been removed.
 
-# aria2c downloader configuration
-aria2c:
-  max_concurrent_downloads: 4
-  max_connection_per_server: 3
-  split: 5
-  file_allocation: falloc # none | prealloc | falloc | trunc
-
-# N_m3u8DL-RE downloader configuration
-n_m3u8dl_re:
-  thread_count: 16
-  ad_keyword: "advertisement"
-  use_proxy: true
-
-# curl_impersonate downloader configuration
+# rnet TLS impersonation preset (not a downloader). Selects the browser
+# fingerprint the HTTP session impersonates.
 curl_impersonate:
   browser: chrome120
 
@@ -555,9 +539,8 @@ remote_services:
     # Per-service overrides for remote services
     # Override downloader, decryption tool, or CDM settings per service on the client
     services:
-      # Example: Use n_m3u8dl_re for HLS services, mp4decrypt for specific services
+      # Example: Override the decryption tool for specific services
       # EXAMPLE_SERVICE:
-      #   downloader: n_m3u8dl_re  # Override client downloader (requests, aria2c, n_m3u8dl_re, curl_impersonate)
       #   decryption: mp4decrypt   # Override decryption tool (shaka, mp4decrypt)
 
   # Example: Multiple servers
@@ -567,7 +550,6 @@ remote_services:
   #   server_cdm: true
   #   services:
   #     EXAMPLE:
-  #       downloader: n_m3u8dl_re
   #       decryption: mp4decrypt
   # eu-server:
   #   url: "https://eu.example.com:8786"
@@ -581,7 +563,7 @@ services:
 
   # You can override ANY global configuration option on a per-service basis
   # This allows fine-tuned control for services with special requirements
-  # Supported overrides: dl, aria2c, n_m3u8dl_re, curl_impersonate, subtitle, muxing, headers, etc.
+  # Supported overrides: dl, curl_impersonate, subtitle, muxing, headers, etc.
 
   # Example: Comprehensive service configuration showing all features
   EXAMPLE:
@@ -627,20 +609,6 @@ services:
       lang: ["en", "es-419"] # Different language priority for this service
       sub_format: srt # Force SRT subtitle format
 
-    # Override n_m3u8dl_re downloader settings
-    n_m3u8dl_re:
-      thread_count: 8 # Lower thread count for rate-limited service (global default: 16)
-      use_proxy: true # Force proxy usage for this service
-      retry_count: 10 # More retries for unstable connections
-      ad_keyword: "advertisement" # Service-specific ad filtering
-
-    # Override aria2c downloader settings
-    aria2c:
-      max_concurrent_downloads: 2 # Limit concurrent downloads (global default: 4)
-      max_connection_per_server: 1 # Single connection per server
-      split: 3 # Fewer splits (global default: 5)
-      file_allocation: none # Faster allocation for this service
-
     # Override subtitle processing for this service
     subtitle:
       conversion_method: pycaption # Use specific subtitle converter
@@ -675,18 +643,12 @@ services:
     dl:
       downloads: 2 # Limit concurrent downloads
       workers: 4 # Reduce workers to avoid rate limits
-    n_m3u8dl_re:
-      thread_count: 4 # Very low thread count
-      retry_count: 20 # More retries for flaky service
-    aria2c:
-      max_concurrent_downloads: 1 # Download tracks one at a time
-      max_connection_per_server: 1 # Single connection only
 
   # Notes on service-specific overrides:
   # - Overrides are merged with global config, not replaced
   # - Only specified keys are overridden, others use global defaults
   # - Reserved keys (profiles, api_key, certificate, etc.) are NOT treated as overrides
-  # - Any dict-type config option can be overridden (dl, aria2c, n_m3u8dl_re, subtitle, etc.)
+  # - Any dict-type config option can be overridden (dl, subtitle, muxing, headers, etc.)
   # - CLI arguments always take priority over service-specific config
 
 # External proxy provider services
