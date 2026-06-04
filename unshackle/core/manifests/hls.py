@@ -570,6 +570,14 @@ class HLS:
                         DOWNLOAD_CANCELLED.set()  # skip pending track downloads
                         progress(downloaded="[red]FAILED")
                         raise
+                elif isinstance(media_drm, ClearKey):
+                    # AES-128 (ClearKey) needs no license server — the key is already fetched.
+                    # Without this branch session_drm stayed None and segments were never
+                    # decrypted (they were merged still-encrypted, producing a broken file).
+                    track.drm = [media_drm]
+                    session_drm = media_drm
+                    initial_drm_key = media_playlist_key
+                    initial_drm_licensed = True
 
         # Fall back to session DRM if media playlist has no matching keys
         if not initial_drm_licensed and session_drm and isinstance(session_drm, (Widevine, PlayReady)):
@@ -682,6 +690,9 @@ class HLS:
         name_len = len(str(total_segments))
         discon_i = 0
         range_offset = 0
+        # First segment's Media Sequence Number — used as the AES-128 IV when EXT-X-KEY has
+        # no explicit IV (RFC 8216 §5.2), where each segment's IV is its sequence number.
+        media_sequence_start = getattr(master, "media_sequence", None) or 0
         map_data: Optional[tuple[m3u8.model.InitializationSection, bytes]] = None
         if session_drm:
             encryption_data: Optional[tuple[Optional[m3u8.Key], DRM_T]] = (initial_drm_key, session_drm)
@@ -760,7 +771,14 @@ class HLS:
                 else:
                     # with other drm we must decrypt separately and then merge them
                     # for aes this is because each segment likely has 16-byte padding
+                    key_obj = encryption_data[0]
+                    # AES-128 with no explicit IV: each segment's IV is its media sequence
+                    # number (RFC 8216 §5.2). Without this the engine used a zero IV and the
+                    # output decrypted to garbage.
+                    seq_iv = isinstance(drm, ClearKey) and not (key_obj and key_obj.iv)
                     for file in files:
+                        if seq_iv and file.stem.isdigit():
+                            drm.iv = (media_sequence_start + int(file.stem)).to_bytes(16, "big")
                         drm.decrypt(file)
                     merge(to=merged_path, via=files, delete=True, include_map_data=True)
 
