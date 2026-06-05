@@ -76,7 +76,7 @@ def check_load_errors() -> None:
         raise click.ClickException(f"Failed to load {len(LOAD_ERRORS)} service(s):\n{joined}")
 
 
-class Services(click.MultiCommand):
+class Services(click.Group):
     """Lazy-loaded command group of project services."""
 
     _remote_services_cache: list[dict] | None = None
