@@ -726,8 +726,10 @@ class FPS(ast.NodeVisitor):
             return self.visit(node.left) / self.visit(node.right)
         raise ValueError(f"Invalid operation: {node.op}")
 
-    def visit_Num(self, node: ast.Num) -> complex:
-        return node.n
+    def visit_Constant(self, node: ast.Constant) -> float:
+        if not isinstance(node.value, (int, float)):
+            raise ValueError(f"Invalid fps value: {node.value!r}")
+        return node.value
 
     def visit_Expr(self, node: ast.Expr) -> float:
         return self.visit(node.value)
