@@ -571,7 +571,7 @@ class HLS:
                         progress(downloaded="[red]FAILED")
                         raise
                 elif isinstance(media_drm, ClearKey):
-                    # AES-128 (ClearKey) needs no license server — the key is already fetched.
+                    # AES-128 (ClearKey) needs no license server - the key is already fetched.
                     # Without this branch session_drm stayed None and segments were never
                     # decrypted (they were merged still-encrypted, producing a broken file).
                     track.drm = [media_drm]
@@ -690,7 +690,7 @@ class HLS:
         name_len = len(str(total_segments))
         discon_i = 0
         range_offset = 0
-        # First segment's Media Sequence Number — used as the AES-128 IV when EXT-X-KEY has
+        # First segment's Media Sequence Number - used as the AES-128 IV when EXT-X-KEY has
         # no explicit IV (RFC 8216 §5.2), where each segment's IV is its sequence number.
         media_sequence_start = getattr(master, "media_sequence", None) or 0
         map_data: Optional[tuple[m3u8.model.InitializationSection, bytes]] = None
