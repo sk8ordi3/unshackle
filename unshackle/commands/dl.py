@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Iterable
 from concurrent import futures
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
@@ -19,7 +20,7 @@ from http.cookiejar import CookieJar, MozillaCookieJar
 from itertools import product
 from pathlib import Path
 from threading import Lock
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, TypedDict
 from uuid import UUID
 
 import click
@@ -70,19 +71,34 @@ from unshackle.core.utils.subprocess import ffprobe
 from unshackle.core.vaults import Vaults
 
 
-def download_tracks_in_passes(tracks, max_concurrent, run_one, *, skip_subtitle_errors, on_subtitle_skipped):
-    """Download a title's tracks, keeping a skippable subtitle failure from corrupting the rest.
+class SkippedSubtitle(TypedDict):
+    """A subtitle skipped under ``--skip-subtitle-errors``. Accumulated as ``dl.skipped_subtitles``,
+    one entry per track; ``id`` and ``title`` identify which subtitle of which title was unavailable."""
 
-    A failed track sets the process-global ``DOWNLOAD_CANCELLED`` event, which makes other
-    in-flight tracks early-return without raising - so catching a subtitle failure after the fact
-    can leave a half-downloaded video/audio that still gets muxed. When ``skip_subtitle_errors``
-    is set the fatal tracks (video/audio) are therefore downloaded concurrently first, and the
-    skippable subtitles run in a separate sequential pass once nothing else is in flight, with the
-    event reset before each so one failure can't poison the next. Video/Audio failures stay fatal.
-    The event is also reset up front so a cancel from a previous title can't carry over.
+    id: str
+    language: str
+    title: str
+
+
+def download_tracks_in_passes(
+    tracks: Iterable[AnyTrack],
+    max_concurrent: int,
+    run_one: Callable[[AnyTrack, int], None],
+    *,
+    skip_subtitle_errors: bool,
+    on_subtitle_skipped: Callable[[Subtitle], None],
+) -> None:
+    """Download a title's tracks so a skippable subtitle failure can't corrupt the rest.
+
+    A failed track sets the process-global ``DOWNLOAD_CANCELLED`` event, making other in-flight
+    tracks early-return without raising. With ``skip_subtitle_errors`` set, video/audio download
+    concurrently first; the subtitles then run one at a time (a concurrent pass would let one
+    failure's cancel silently drop the others, unrecorded), with the event cleared before each.
+    Video/audio failures stay fatal. The event is cleared on entry (stale cancel from a prior
+    title) and in ``finally`` (never leave it set for later code).
 
     ``run_one(track, index)`` downloads a single track; ``on_subtitle_skipped(track)`` records a
-    subtitle whose download raised (the exception is handled here).
+    subtitle whose download raised (handled here).
     """
     DOWNLOAD_CANCELLED.clear()
     indexed = list(enumerate(tracks))
@@ -92,17 +108,20 @@ def download_tracks_in_passes(tracks, max_concurrent, run_one, *, skip_subtitle_
     else:
         primary, skippable = indexed, []
 
-    with ThreadPoolExecutor(max_concurrent) as pool:
-        future_to_track = {pool.submit(run_one, track, i): track for i, track in primary}
-        for download in futures.as_completed(future_to_track):
-            download.result()  # a video/audio failure is fatal
+    try:
+        with ThreadPoolExecutor(max_concurrent) as pool:
+            future_to_track = {pool.submit(run_one, track, i): track for i, track in primary}
+            for download in futures.as_completed(future_to_track):
+                download.result()  # a video/audio failure is fatal
 
-    for i, track in skippable:
-        DOWNLOAD_CANCELLED.clear()
-        try:
-            run_one(track, i)
-        except Exception:
-            on_subtitle_skipped(track)
+        for i, track in skippable:
+            DOWNLOAD_CANCELLED.clear()
+            try:
+                run_one(track, i)
+            except Exception:
+                on_subtitle_skipped(track)
+    finally:
+        DOWNLOAD_CANCELLED.clear()  # never leave a failed track's cancel set for later code
 
 
 class dl:
@@ -648,8 +667,8 @@ class dl:
         self.log = logging.getLogger("download")
         self.completed_files: list[Path] = []
         # Subtitles skipped under --skip-subtitle-errors, recorded so an embedding caller can
-        # report which weren't available without parsing the console output.
-        self.skipped_subtitles: list[str] = []
+        # report which weren't available without parsing the console output. See SkippedSubtitle.
+        self.skipped_subtitles: list[SkippedSubtitle] = []
 
         if not config.output_template:
             raise click.ClickException(
@@ -2248,7 +2267,7 @@ class dl:
             try:
                 with Live(Padding(download_table, (1, 5)), console=console, refresh_per_second=5):
 
-                    def download_track(track, i):
+                    def download_track(track: AnyTrack, i: int) -> None:
                         track.download(
                             session=track.session or service.session,
                             no_proxy_download=no_proxy_download,
@@ -2277,15 +2296,16 @@ class dl:
                             progress=tracks_progress_callables[i],
                         )
 
-                    def on_subtitle_skipped(track):
-                        lang = str(getattr(track, "language", "") or "")
+                    def on_subtitle_skipped(track: Subtitle) -> None:
+                        lang = str(track.language)
                         self.log.warning(f"Subtitle {lang} failed to download, skipping it.")
-                        self.skipped_subtitles.append(lang)
+                        self.skipped_subtitles.append(SkippedSubtitle(id=track.id, language=lang, title=str(title)))
                         try:
                             title.tracks.subtitles.remove(track)
-                        except (ValueError, AttributeError):
-                            pass
+                        except ValueError:
+                            self.log.debug(f"Skipped subtitle {track.id} was already absent from the track list.")
 
+                    skipped_before = len(self.skipped_subtitles)
                     download_tracks_in_passes(
                         title.tracks,
                         downloads,
@@ -2293,6 +2313,17 @@ class dl:
                         skip_subtitle_errors=skip_subtitle_errors,
                         on_subtitle_skipped=on_subtitle_skipped,
                     )
+
+                    if (
+                        len(self.skipped_subtitles) > skipped_before
+                        and not title.tracks.videos
+                        and not title.tracks.audio
+                        and not title.tracks.subtitles
+                    ):
+                        self.log.warning(
+                            f"{title}: all subtitles were skipped and no video or audio was "
+                            "downloaded - nothing was produced for this title."
+                        )
 
             except KeyboardInterrupt:
                 console.print(Padding(":x: Download Cancelled...", (0, 5, 1, 5)))

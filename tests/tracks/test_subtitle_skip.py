@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from unshackle.commands.dl import download_tracks_in_passes
+from unshackle.commands.dl import SkippedSubtitle, download_tracks_in_passes
 from unshackle.core.constants import DOWNLOAD_CANCELLED
 from unshackle.core.tracks import Audio, Subtitle, Video
 
@@ -125,6 +125,8 @@ def test_subtitle_failure_stays_fatal_without_flag():
             skip_subtitle_errors=False, on_subtitle_skipped=h.on_subtitle_skipped,
         )
 
+    assert not DOWNLOAD_CANCELLED.is_set()  # the finally clears the event even on the fatal path
+
 
 def test_cancel_event_is_reset_between_titles():
     """A cancel left set by a previous title must not skip this title's tracks."""
@@ -139,3 +141,53 @@ def test_cancel_event_is_reset_between_titles():
 
     assert set(h.completed) == {"v", "a"}
     assert h.early_returned == []
+
+
+def test_cancel_event_cleared_after_failed_final_subtitle():
+    """A subtitle failing in the last pass leaves the event clear on exit, not set."""
+    video = make_video()
+    sub = make_subtitle("s-he", "he")
+    h = Harness(fail_ids={"s-he"})
+
+    download_tracks_in_passes(
+        [video, sub], 4, h.run_one,
+        skip_subtitle_errors=True, on_subtitle_skipped=h.on_subtitle_skipped,
+    )
+
+    assert not DOWNLOAD_CANCELLED.is_set()  # the helper clears it on exit for any later code
+
+
+def test_all_subtitles_skipped_video_audio_kept():
+    """Every subtitle failing must not stop the video/audio, and each is recorded."""
+    video, audio = make_video(), make_audio()
+    s1, s2 = make_subtitle("s-en", "en"), make_subtitle("s-he", "he")
+    h = Harness(fail_ids={"s-en", "s-he"})
+
+    download_tracks_in_passes(
+        [video, audio, s1, s2], 4, h.run_one,
+        skip_subtitle_errors=True, on_subtitle_skipped=h.on_subtitle_skipped,
+    )
+
+    assert set(h.completed) == {"v", "a"}  # both fatal tracks survived
+    assert {t.id for t in h.skipped} == {"s-en", "s-he"}  # every failing subtitle recorded
+
+
+def test_duplicate_language_subtitles_distinguished_by_id():
+    """Forced + SDH share a language; a failure of each must be distinguishable by track id -
+    the reason ``SkippedSubtitle`` carries ``id`` and not just ``language``."""
+    forced, sdh = make_subtitle("en-forced", "en"), make_subtitle("en-sdh", "en")
+    h = Harness(fail_ids={"en-forced", "en-sdh"})
+
+    download_tracks_in_passes(
+        [make_video(), forced, sdh], 4, h.run_one,
+        skip_subtitle_errors=True, on_subtitle_skipped=h.on_subtitle_skipped,
+    )
+
+    assert [t.id for t in h.skipped] == ["en-forced", "en-sdh"]  # same language, distinct ids
+
+
+def test_skipped_subtitle_contract():
+    """Pin the public ``skipped_subtitles`` entry shape - #113 serializes it into the job, so a
+    field rename/removal here is a breaking change and must fail a test."""
+    assert set(SkippedSubtitle.__annotations__) == {"id", "language", "title"}
+    assert SkippedSubtitle.__required_keys__ == frozenset({"id", "language", "title"})
