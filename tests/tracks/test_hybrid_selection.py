@@ -6,10 +6,14 @@ Covers the selection primitives that back `-r ...,DV,HYBRID` downloads:
   single lowest DV track used as a hybrid ingredient.
 - ``Tracks.merge_video_selections`` — de-duplicates the ingredient/deliverable
   overlap so a DV track that is chosen as both is not muxed/downloaded twice.
+- ``Tracks.partition_hybrid_videos`` — splits the ladder into hybrid-ingredient
+  candidates and the standalone-deliverable pool; HDR10/HDR10+/DV only enter
+  the pool when their range was explicitly requested alongside HYBRID.
+- ``Tracks.flag_hybrid_ingredients`` — marks ingredient-only tracks with
+  ``hybrid_base_only`` so the standalone mux loop skips them.
 
-The full ``dl`` selection pipeline (range filtering, the ``dv_is_deliverable``
-partition, the ``hybrid_base_only`` ingredient flag and the standalone mux loop)
-is orchestration glue inside the Click command; these tests lock down the pure
+The remaining ``dl`` glue (the Cartesian deliverable product and the mux loop)
+is orchestration inside the Click command; these tests lock down the pure
 units it relies on plus the documented end-state of a realistic ATV-style ladder.
 """
 
@@ -135,6 +139,93 @@ def test_merge_dedup_uses_track_identity_by_id() -> None:
     b = make_video("same", range_=Video.Range.DV, height=1080, bitrate=9_000_000, codec=H)
     assert a == b
     assert len(Tracks.merge_video_selections([a], [b])) == 1
+
+
+# ---------------------------------------------------------------------------
+# partition_hybrid_videos
+# ---------------------------------------------------------------------------
+
+
+def test_partition_hybrid_only_keeps_ingredients_out_of_pool(ladder: list[Video]) -> None:
+    """`-r HYBRID`: HDR10+/DV are ingredients only; pool holds just SDR."""
+    candidates, pool = Tracks.partition_hybrid_videos(ladder, [])
+    assert ids(candidates) == {"hdr10p-2160", "hdr10p-1080", "dv-2160", "dv-1080", "dv-360"}
+    assert ids(pool) == {"sdr-2160", "sdr-1080-avc", "sdr-1080-hevc"}
+
+
+def test_partition_admits_hdr10p_to_pool_when_requested(ladder: list[Video]) -> None:
+    """`-r HYBRID,HDR10P`: HDR10+ tracks become standalone deliverable candidates."""
+    candidates, pool = Tracks.partition_hybrid_videos(ladder, [Video.Range.HDR10P])
+    assert {"hdr10p-2160", "hdr10p-1080"} <= ids(pool)
+    assert not any(t.range == Video.Range.DV for t in pool)
+    # Candidates are unaffected by the requested ranges.
+    assert ids(candidates) == {"hdr10p-2160", "hdr10p-1080", "dv-2160", "dv-1080", "dv-360"}
+
+
+def test_partition_admits_dv_and_hdr10p_when_both_requested(ladder: list[Video]) -> None:
+    """`-r HYBRID,HDR10P,DV`: both ranges enter the deliverable pool."""
+    _, pool = Tracks.partition_hybrid_videos(ladder, [Video.Range.HDR10P, Video.Range.DV])
+    assert {"hdr10p-2160", "hdr10p-1080", "dv-2160", "dv-1080", "dv-360"} <= ids(pool)
+
+
+def test_partition_hdr10_requested_does_not_admit_hdr10p() -> None:
+    H = Video.Codec.HEVC
+    tracks = [
+        make_video("hdr10-2160", range_=Video.Range.HDR10, height=2160, bitrate=20_000_000, codec=H),
+        make_video("hdr10p-2160", range_=Video.Range.HDR10P, height=2160, bitrate=20_000_000, codec=H),
+    ]
+    _, pool = Tracks.partition_hybrid_videos(tracks, [Video.Range.HDR10])
+    assert ids(pool) == {"hdr10-2160"}
+
+
+# ---------------------------------------------------------------------------
+# flag_hybrid_ingredients
+# ---------------------------------------------------------------------------
+
+
+def flagged(tracks: list[Video]) -> set[str]:
+    return {t.id for t in tracks if t.hybrid_base_only}
+
+
+def test_flag_hybrid_only_flags_base_and_ingredient_dv(ladder: list[Video]) -> None:
+    """`-r HYBRID`: no deliverables, so the base and the ingredient DV are both
+    skipped by the standalone mux loop — only the hybrid output remains."""
+    hybrid_selected = list(filter(Tracks().select_hybrid(ladder, [1080]), ladder))
+    Tracks.flag_hybrid_ingredients(hybrid_selected, [])
+    assert flagged(ladder) == {"hdr10p-1080", "dv-360"}
+
+
+def test_flag_hybrid_plus_hdr10p_keeps_base_deliverable(ladder: list[Video]) -> None:
+    """`-r HYBRID,HDR10P`: the base is also an explicit deliverable, only the
+    ingredient DV is skipped — hybrid + standalone HDR10+ are muxed."""
+    hybrid_selected = list(filter(Tracks().select_hybrid(ladder, [1080]), ladder))
+    base = next(t for t in ladder if t.id == "hdr10p-1080")
+    Tracks.flag_hybrid_ingredients(hybrid_selected, [base])
+    assert flagged(ladder) == {"dv-360"}
+
+
+def test_flag_hybrid_plus_hdr10p_and_dv_keeps_both_deliverables(ladder: list[Video]) -> None:
+    """`-r HYBRID,HDR10P,DV`: best DV is a deliverable, lowest DV stays
+    ingredient-only — hybrid + HDR10+ + DV are muxed."""
+    hybrid_selected = list(filter(Tracks().select_hybrid(ladder, [1080]), ladder))
+    base = next(t for t in ladder if t.id == "hdr10p-1080")
+    best_dv = next(t for t in ladder if t.id == "dv-1080")
+    Tracks.flag_hybrid_ingredients(hybrid_selected, [base, best_dv])
+    assert flagged(ladder) == {"dv-360"}
+
+
+def test_flag_single_dv_rendition_as_deliverable_stays_unflagged() -> None:
+    """`-r HYBRID,DV` with one DV rendition: the same track is ingredient and
+    deliverable, so it must still be muxed standalone."""
+    H = Video.Codec.HEVC
+    tracks = [
+        make_video("hdr10p-1080", range_=Video.Range.HDR10P, height=1080, bitrate=9_000_000, codec=H),
+        make_video("dv-1080", range_=Video.Range.DV, height=1080, bitrate=9_000_000, codec=H),
+    ]
+    hybrid_selected = list(filter(Tracks().select_hybrid(tracks, [1080]), tracks))
+    dv = next(t for t in tracks if t.id == "dv-1080")
+    Tracks.flag_hybrid_ingredients(hybrid_selected, [dv])
+    assert flagged(tracks) == {"hdr10p-1080"}
 
 
 # ---------------------------------------------------------------------------

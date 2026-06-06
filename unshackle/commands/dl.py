@@ -1697,24 +1697,12 @@ class dl:
 
                     has_hybrid = any(r == Video.Range.HYBRID for r in range_)
                     non_hybrid_ranges = [r for r in range_ if r != Video.Range.HYBRID]
-                    # DV is both a hybrid ingredient (lowest track) and, when explicitly
-                    # requested, a standalone deliverable (best track per resolution).
-                    dv_is_deliverable = Video.Range.DV in non_hybrid_ranges
-
                     if quality:
                         missing_resolutions = []
                         if has_hybrid:
-                            hybrid_candidate_tracks = [
-                                v
-                                for v in title.tracks.videos
-                                if v.range in (Video.Range.HDR10, Video.Range.HDR10P, Video.Range.DV)
-                            ]
-                            non_hybrid_tracks = [
-                                v
-                                for v in title.tracks.videos
-                                if v.range not in (Video.Range.HDR10, Video.Range.HDR10P, Video.Range.DV)
-                                or (dv_is_deliverable and v.range == Video.Range.DV)
-                            ]
+                            hybrid_candidate_tracks, non_hybrid_tracks = Tracks.partition_hybrid_videos(
+                                title.tracks.videos, non_hybrid_ranges
+                            )
 
                             hybrid_filter = title.tracks.select_hybrid(hybrid_candidate_tracks, quality, worst=worst)
                             hybrid_selected = list(filter(hybrid_filter, hybrid_candidate_tracks))
@@ -1757,17 +1745,9 @@ class dl:
                     pre_hybrid_videos: list[Video] = list(title.tracks.videos) if has_hybrid else []
                     if has_hybrid:
                         # Apply hybrid selection for HYBRID tracks
-                        hybrid_candidate_tracks = [
-                            v
-                            for v in title.tracks.videos
-                            if v.range in (Video.Range.HDR10, Video.Range.HDR10P, Video.Range.DV)
-                        ]
-                        non_hybrid_tracks = [
-                            v
-                            for v in title.tracks.videos
-                            if v.range not in (Video.Range.HDR10, Video.Range.HDR10P, Video.Range.DV)
-                            or (dv_is_deliverable and v.range == Video.Range.DV)
-                        ]
+                        hybrid_candidate_tracks, non_hybrid_tracks = Tracks.partition_hybrid_videos(
+                            title.tracks.videos, non_hybrid_ranges
+                        )
 
                         if not quality:
                             best_resolution = max((v.height for v in hybrid_candidate_tracks), default=None)
@@ -1811,14 +1791,10 @@ class dl:
 
                         title.tracks.videos = Tracks.merge_video_selections(hybrid_selected, non_hybrid_selected)
 
-                        # Flag the lowest DV track as ingredient-only so mux skips it standalone,
-                        # unless it is itself the chosen DV deliverable (single DV rendition).
-                        selected_dv = [v for v in title.tracks.videos if v.range == Video.Range.DV]
-                        if selected_dv:
-                            ingredient_dv = min(selected_dv, key=lambda v: v.height)
-                            deliverable_dv = [v for v in non_hybrid_selected if v.range == Video.Range.DV]
-                            if not (dv_is_deliverable and ingredient_dv in deliverable_dv):
-                                ingredient_dv.hybrid_base_only = True
+                        # Flag tracks selected only as hybrid ingredients (the HDR base and/or
+                        # the lowest DV) so the standalone mux loop skips them. Tracks also
+                        # picked as explicit deliverables stay unflagged.
+                        Tracks.flag_hybrid_ingredients(hybrid_selected, non_hybrid_selected)
                     else:
                         selected_videos: list[Video] = []
                         if video_multi_lang:
