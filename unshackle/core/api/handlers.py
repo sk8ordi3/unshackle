@@ -2009,9 +2009,10 @@ def _resolve_device_name(user_config: dict, drm_type: str, service_tag: str = ""
 def _load_server_vaults(service_name: str) -> Any:
     """Load server vaults from config.key_vaults."""
     from unshackle.core.config import config as app_config
+    from unshackle.core.services import Services
     from unshackle.core.vaults import Vaults
 
-    vaults = Vaults(service_name)
+    vaults = Vaults(Services.get_vault_tag(service_name))
     for vault_config in app_config.key_vaults:
         cfg = vault_config.copy()
         vault_type = cfg.pop("type", None)

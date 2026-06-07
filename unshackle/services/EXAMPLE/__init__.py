@@ -75,6 +75,9 @@ class EXAMPLE(Service):
     TITLE_RE = r"^(?:https?://(?:www\.)?domain\.com/details/)?(?P<title_id>[^/?#]+)"
     # NO_SUBTITLES: service-level idiom telling the pipeline subs are handled in-band.
     NO_SUBTITLES = False
+    # VAULT_TAG: store/read keys under a different vault namespace than this service's tag.
+    # Lets sibling services share one key vault. Omit to use the service's own tag.
+    VAULT_TAG = "DIFFERENT_NAME"
 
     # Map our API's range strings <-> unshackle's Video.Range enum.
     VIDEO_RANGE_MAP = {

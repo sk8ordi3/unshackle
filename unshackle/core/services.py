@@ -274,5 +274,19 @@ class Services(click.Group):
 
         raise KeyError(f"There is no Service added by the Tag '{tag}'")
 
+    @staticmethod
+    def get_vault_tag(name: str) -> str:
+        """Resolve the key-vault namespace tag for a service.
+
+        Returns the service's VAULT_TAG override when set, otherwise its own tag.
+        Falls back to the resolved tag for non-local services (remote/import).
+        """
+        tag = Services.get_tag(name)
+        try:
+            service = Services.load(tag)
+        except KeyError:
+            return tag
+        return getattr(service, "VAULT_TAG", None) or tag
+
 
 __all__ = ("Services",)

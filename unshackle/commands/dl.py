@@ -618,6 +618,7 @@ class dl:
             )
 
         self.service = Services.get_tag(ctx.invoked_subcommand)
+        self.vault_service = Services.get_vault_tag(self.service)
         service_dl_config = config.services.get(self.service, {}).get("dl", {})
         if service_dl_config:
             param_types = {param.name: param.type for param in ctx.command.params if param.name}
@@ -818,7 +819,7 @@ class dl:
         cdm_only = ctx.params.get("cdm_only")
 
         if cdm_only:
-            self.vaults = Vaults(self.service)
+            self.vaults = Vaults(self.vault_service)
             self.log.info("CDM-only mode: Skipping vault loading")
             if self.debug_logger:
                 self.debug_logger.log(
@@ -829,7 +830,7 @@ class dl:
                 )
         else:
             with console.status("Loading Key Vaults...", spinner="dots"):
-                self.vaults = Vaults(self.service)
+                self.vaults = Vaults(self.vault_service)
                 total_vaults = len(config.key_vaults)
                 failed_vaults = []
 

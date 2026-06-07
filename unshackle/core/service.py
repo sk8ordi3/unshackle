@@ -93,6 +93,8 @@ class Service(metaclass=ABCMeta):
     # Abstract class variables
     ALIASES: tuple[str, ...] = ()  # list of aliases for the service; alternatives to the service tag.
     GEOFENCE: tuple[str, ...] = ()  # list of ip regions required to use the service. empty list == no specific region.
+    # vault namespace override; when set, key vault read/write uses this tag instead of the service's own.
+    VAULT_TAG: Optional[str] = None
 
     def __init__(self, ctx: click.Context):
         console.print(Padding(Rule(f"[rule.text]Service: {self.__class__.__name__}"), (1, 2)))
