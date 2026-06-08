@@ -957,13 +957,13 @@ def validate_download_parameters(data: Dict[str, Any]) -> Optional[str]:
         return "Cannot use both s_lang and require_subs"
 
     if "range" in data and data["range"]:
-        valid_ranges = ["SDR", "HDR10", "HDR10+", "DV", "HLG", "HYBRID"]
-        if isinstance(data["range"], list):
-            for r in data["range"]:
-                if r.upper() not in valid_ranges:
-                    return f"Invalid range value: {r}. Must be one of: {', '.join(valid_ranges)}"
-        elif data["range"].upper() not in valid_ranges:
-            return f"Invalid range value: {data['range']}. Must be one of: {', '.join(valid_ranges)}"
+        # "HDR10P" is the canonical range value ("+" is awkward in scripts); "HDR10+" stays valid.
+        valid_ranges = ["SDR", "HDR10", "HDR10P", "DV", "HLG", "HYBRID"]
+        accepted = {*valid_ranges, "HDR10+"}
+        values = data["range"] if isinstance(data["range"], list) else [data["range"]]
+        for r in values:
+            if r.upper() not in accepted:
+                return f"Invalid range value: {r}. Must be one of: {', '.join(valid_ranges)}"
 
     return None
 

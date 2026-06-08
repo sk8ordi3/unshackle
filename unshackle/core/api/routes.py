@@ -233,9 +233,7 @@ async def services(request: web.Request) -> web.Response:
                     or getattr(service_module, "get_playready_license", None) is not _BaseService.get_playready_license
                 )
 
-                # Auth methods the service accepts. Prefer an explicit `AUTH_METHODS` class var
-                # (reliable); otherwise fall back to inferring from what authenticate() references
-                # - that mostly returns both because services call super().authenticate(...).
+                # Prefer the service's explicit AUTH_METHODS; otherwise infer from authenticate().
                 methods = []
                 if service_data["needs_auth"]:
                     declared = getattr(service_module, "AUTH_METHODS", None)

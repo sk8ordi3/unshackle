@@ -108,8 +108,11 @@ class DownloadJob:
     error_traceback: Optional[str] = None
     worker_stderr: Optional[str] = None
 
-    # Human-readable current phase (e.g. "downloading video 1080p")
+    # Current phase, track counts, and labels of the tracks downloading now.
     phase: Optional[str] = None
+    completed_tracks: int = 0
+    total_tracks: int = 0
+    active_tracks: List[str] = field(default_factory=list)
 
     # Subtitles skipped under skip_subtitle_errors (non-fatal). Each entry is a dl.SkippedSubtitle
     # dict (id / language / title) so a client can report which weren't available.
@@ -128,6 +131,9 @@ class DownloadJob:
             "title_id": self.title_id,
             "progress": self.progress,
             "phase": self.phase,
+            "completed_tracks": self.completed_tracks,
+            "total_tracks": self.total_tracks,
+            "active_tracks": self.active_tracks,
             "skipped_subtitles": self.skipped_subtitles,
         }
 
@@ -175,6 +181,7 @@ def _perform_download(
     import yaml
 
     from unshackle.commands.dl import dl
+    from unshackle.core.api.errors import APIError, APIErrorCode
     from unshackle.core.config import config
     from unshackle.core.services import Services
     from unshackle.core.tracks import Subtitle, Video
@@ -359,69 +366,16 @@ def _perform_download(
     stdout_capture = StringIO()
     stderr_capture = StringIO()
 
-    # Simple progress tracking if callback provided
+    # The progress_sink (dl.build_job_progress_callables) owns the percentage; status changes
+    # are emitted here.
     if progress_callback:
-        # Report initial progress
         progress_callback({"progress": 0.0, "status": "starting"})
-
-        # Tee each Track.download's progress callable so the downloader's live percentage
-        # is forwarded to the API job (not just 5%/100%), and expose which track is being
-        # downloaded now as a human-readable phase.
-        from unshackle.core.tracks.track import Track as _Track
-
-        if not getattr(_Track, "_api_progress_patched", False):
-            _orig_track_download = _Track.download
-
-            def _download_with_progress(self, *args, **kwargs):
-                inner_progress = kwargs.get("progress")
-                track_type = type(self).__name__
-                phase = {
-                    "Video": "downloading video",
-                    "Audio": "downloading audio",
-                    "Subtitle": "downloading subtitle",
-                }.get(track_type, f"downloading {track_type.lower()}")
-                height = getattr(self, "height", None)
-                language = getattr(self, "language", None)
-                if height:
-                    phase += f" {height}p"
-                elif track_type in ("Audio", "Subtitle") and language:
-                    phase += f" {language}"
-                progress_callback({"phase": phase, "status": "downloading"})
-
-                if callable(inner_progress):
-                    counts = {"completed": 0.0, "total": 0.0}
-
-                    def tee(*tee_args, **tee_kwargs):
-                        if tee_kwargs.get("total"):
-                            counts["total"] = tee_kwargs["total"]
-                        if tee_kwargs.get("completed") is not None:
-                            counts["completed"] = tee_kwargs["completed"]
-                        if "advance" in tee_kwargs:
-                            counts["completed"] += tee_kwargs["advance"]
-                        pct = counts["completed"] * 100.0 / counts["total"] if counts["total"] else 0
-                        if pct:
-                            progress_callback(
-                                {"progress": min(99.0, float(pct)), "phase": phase, "status": "downloading"}
-                            )
-                        return inner_progress(*tee_args, **tee_kwargs)
-
-                    kwargs["progress"] = tee
-                return _orig_track_download(self, *args, **kwargs)
-
-            _Track.download = _download_with_progress
-            _Track._api_progress_patched = True
-
         original_result = dl_instance.result
 
         def result_with_progress(*args, **kwargs):
             try:
-                # Report that download started
-                progress_callback({"progress": 5.0, "status": "downloading"})
-
-                # Call original method
+                progress_callback({"status": "downloading"})
                 result = original_result(*args, **kwargs)
-
-                # Report completion
                 progress_callback({"progress": 100.0, "status": "completed"})
                 return result
             except Exception as e:
@@ -481,6 +435,7 @@ def _perform_download(
                 worst=params.get("worst", False),
                 best_available=params.get("best_available", False),
                 split_audio=params.get("split_audio"),
+                progress_sink=progress_callback,
             )
 
     except SystemExit as exc:
@@ -490,7 +445,7 @@ def _perform_download(
             log.error(f"Download exited with code {exc.code}")
             log.error(f"Stdout: {stdout_str}")
             log.error(f"Stderr: {stderr_str}")
-            raise Exception(f"Download failed with exit code {exc.code}")
+            raise APIError(APIErrorCode.DOWNLOAD_ERROR, f"Download failed with exit code {exc.code}")
 
     except Exception as exc:  # noqa: BLE001 - propagate to caller
         stdout_str = stdout_capture.getvalue()
@@ -504,7 +459,7 @@ def _perform_download(
     # It sets download_failed in that case, so the job isn't reported as completed with no output.
     if getattr(dl_instance, "download_failed", False):
         detail = (stdout_capture.getvalue() + stderr_capture.getvalue())[-200:].strip()
-        raise Exception("download worker failed: " + (detail or "see logs"))
+        raise APIError(APIErrorCode.WORKER_ERROR, "download worker failed: " + (detail or "see logs"))
 
     # Surface any subtitles that were skipped (non-fatal failures) so the client can report them.
     if progress_callback:
@@ -796,6 +751,12 @@ class DownloadQueueManager:
                             progress_data = json.load(handle)
                             if progress_data.get("phase") and progress_data["phase"] != job.phase:
                                 job.phase = progress_data["phase"]
+                            if progress_data.get("total_tracks"):
+                                job.total_tracks = int(progress_data["total_tracks"])
+                            if progress_data.get("completed_tracks") is not None:
+                                job.completed_tracks = int(progress_data["completed_tracks"])
+                            if "active_tracks" in progress_data:
+                                job.active_tracks = list(progress_data["active_tracks"])
                             if progress_data.get("skipped_subtitles"):
                                 job.skipped_subtitles = progress_data["skipped_subtitles"]
                             if "progress" in progress_data:

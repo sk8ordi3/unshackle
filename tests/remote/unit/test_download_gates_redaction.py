@@ -9,13 +9,8 @@ import pytest
 from aiohttp import web
 
 from unshackle.core.api import handlers
-from unshackle.core.api.download_manager import (
-    DownloadJob,
-    JobStatus,
-    _redact_parameters,
-    _redact_text,
-    _secret_values,
-)
+from unshackle.core.api.download_manager import (DownloadJob, JobStatus, _redact_parameters, _redact_text,
+                                                 _secret_values)
 from unshackle.core.api.errors import APIError, APIErrorCode
 
 pytestmark = pytest.mark.unit
@@ -140,3 +135,18 @@ async def test_credential_allowed_when_enabled(stub_handler):
     stub_handler.setattr(handlers.config, "serve", {"allow_job_credentials": True})
     resp = await handlers.download_handler({"service": "ATV", "title_id": "t", "credential": "u:p"})
     assert isinstance(resp, web.Response)
+
+
+# ---------- range validation ----------
+
+
+def test_range_validation_accepts_hdr10p_and_alias():
+    # canonical "HDR10P" and back-compat "HDR10+" both pass; mixed casing too
+    assert handlers.validate_download_parameters({"range": ["HDR10P", "DV", "SDR"]}) is None
+    assert handlers.validate_download_parameters({"range": ["hdr10+"]}) is None
+    assert handlers.validate_download_parameters({"range": "HYBRID"}) is None
+
+
+def test_range_validation_rejects_unknown_and_lists_hdr10p():
+    err = handlers.validate_download_parameters({"range": ["HDR99"]})
+    assert err and "HDR10P" in err and "HDR99" in err

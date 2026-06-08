@@ -1143,6 +1143,7 @@ class dl:
         split_audio: Optional[bool] = None,
         real_video_bitrate: bool = False,
         real_audio_bitrate: bool = False,
+        progress_sink: Optional[Callable[[dict[str, Any]], None]] = None,
         *_: Any,
         **__: Any,
     ) -> None:
@@ -2214,6 +2215,13 @@ class dl:
 
             selected_tracks, tracks_progress_callables = title.tracks.tree(add_progress=True)
 
+            if progress_sink is not None:
+                from unshackle.core.api.progress import build_job_progress_callables
+
+                tracks_progress_callables = build_job_progress_callables(
+                    list(title.tracks), tracks_progress_callables, progress_sink
+                )
+
             for track in title.tracks:
                 if hasattr(track, "needs_drm_loading") and track.needs_drm_loading:
                     track.load_drm_if_needed(service)
@@ -2470,6 +2478,8 @@ class dl:
                                 break
 
                 # Now repack the decrypted tracks
+                if progress_sink and any(getattr(t, "needs_repack", False) for t in title.tracks):
+                    progress_sink({"phase": "repackaging", "progress": 92.0, "status": "downloading", "active_tracks": []})
                 with console.status("Repackaging tracks with FFMPEG..."):
                     has_repacked = False
                     for track in title.tracks:
@@ -2636,6 +2646,8 @@ class dl:
                         for video_track in title.tracks.videos or [None]:
                             mux_video_standalone(video_track)
 
+                    if progress_sink:
+                        progress_sink({"phase": "muxing", "progress": 96.0, "status": "downloading", "active_tracks": []})
                     try:
                         with Live(Padding(progress, (0, 5, 1, 5)), console=console):
                             mux_index = 0

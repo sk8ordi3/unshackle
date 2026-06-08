@@ -95,6 +95,9 @@ class Service(metaclass=ABCMeta):
     GEOFENCE: tuple[str, ...] = ()  # list of ip regions required to use the service. empty list == no specific region.
     # vault namespace override; when set, key vault read/write uses this tag instead of the service's own.
     VAULT_TAG: Optional[str] = None
+    # Auth methods the service accepts ("cookies"/"credentials"); when None the REST /services
+    # endpoint infers them from authenticate().
+    AUTH_METHODS: Optional[tuple[str, ...]] = None
 
     def __init__(self, ctx: click.Context):
         console.print(Padding(Rule(f"[rule.text]Service: {self.__class__.__name__}"), (1, 2)))
