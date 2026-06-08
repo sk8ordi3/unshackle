@@ -8,17 +8,44 @@ For the canonical example, see `unshackle/unshackle-example.yaml`.
 
 Control subtitle conversion, SDH (hearing-impaired) stripping, formatting preservation, and output behavior.
 
-- `conversion_method`: How to convert subtitles between formats. Default: `auto`.
-  - `auto`: Smart routing - subby for WebVTT/fVTT/SAMI; for SSA/ASS/MicroDVD/MPL2/TMP use SubtitleEdit when available, otherwise pysubs2; standard pycaption/SubtitleEdit pipeline for everything else.
-  - `subby`: Always use subby with `CommonIssuesFixer` (falls back to standard if the source codec isn't supported by subby).
-  - `subtitleedit`: Prefer SubtitleEdit when available; otherwise fall back to the standard pycaption pipeline.
-  - `pycaption`: Use only the pycaption library (no SubtitleEdit, no subby). Limited to SRT, TTML, and WebVTT outputs.
-  - `pysubs2`: Use pysubs2 (supports SRT, SSA, ASS, WebVTT, TTML, SAMI, MicroDVD, MPL2, TMP).
+- `conversion_method`: Which backend to convert subtitles with. Default: `auto`.
+
+  Routing is data-driven (`unshackle/core/tracks/subtitle_convert.py`): a registry of backends each
+  declares the source→target codec pairs it supports plus a preference rank. For a conversion, the
+  available backends that support the pair are tried in rank order — a real fallback chain. A
+  non-`auto` value **pins** that backend first, then still falls back through the chain if it can't
+  handle the pair or errors (pin-then-fallback). A service may also set `preferred_conversion_method`
+  on its tracks; an explicit `conversion_method` in config always wins.
+
+  - `auto`: Best available backend by rank — SubtitleEdit (if installed) for highest fidelity;
+    otherwise subby for WebVTT/fVTT/SAMI→SRT (adds `CommonIssuesFixer` cleanup), pysubs2 for SSA/ASS
+    and the broad format set, pycaption as last resort.
+  - `subby`: Prefer subby (`CommonIssuesFixer`); reads WebVTT/fVTT/SAMI, writes SRT (and TTML/VTT via
+    an SRT intermediate).
+  - `subtitleedit`: Prefer SubtitleEdit / `seconv`. Highest fidelity — preserves positioning/italics.
+  - `pycaption`: Prefer pycaption. **Flattens positioning/italics**, writes only SRT/TTML/WebVTT.
+  - `pysubs2`: Prefer pysubs2 (SRT, SSA, ASS, WebVTT, TTML, SAMI, MicroDVD, MPL2, TMP). The only
+    pure-Python backend that reads ASS/SSA, so it is the default for styled SubStation sources.
+
+  **Styled-subtitle protection**: ASS/SSA are never *automatically* downconverted to SRT (the
+  conversion is skipped and the original kept) — SRT cannot carry their positioning/colours/styling.
+  This applies to the default muxed track only; explicit requests still convert: a per-download
+  `--sub-format srt` for the muxed track, or `sidecar_format: srt` for sidecars. To keep raw styled
+  sidecars, set `sidecar_format: original`.
+
+  **Segmented subtitles** (`fVTT`/WVTT and `fTTML`/STPP from DASH/HLS, e.g. HBO Max) are read directly
+  from the fragmented MP4: fVTT via subby's `WVTTConverter`, fTTML via pycaption's box parsing. They
+  can be converted *from* but not *to*.
+
+  **SubtitleEdit on Linux/macOS**: install the SubtitleEdit 5+ CLI (`SeConv` / `seconv`, the
+  self-contained cross-platform build from the SubtitleEdit releases) onto `PATH` or into
+  `unshackle/binaries/`. unshackle targets the SubtitleEdit **5+** command syntax. The Windows
+  `SubtitleEdit.exe` is the GUI app — use the `SeConv` CLI binary for headless conversion.
 
 - `sdh_method`: How to strip SDH cues. Default: `auto`.
   - `auto`: Try subby for SRT first, then SubtitleEdit (when `conversion_method` is `auto`/`subtitleedit` and the binary is available), then subtitle-filter as the final fallback.
   - `subby`: Use subby's `SDHStripper`. **Only operates on SRT**; for other codecs the call returns without stripping.
-  - `subtitleedit`: Use SubtitleEdit's `/RemoveTextForHI` when the binary is available; otherwise falls through to subtitle-filter.
+  - `subtitleedit`: Use SubtitleEdit's `--remove-text-for-hi` (SE5 CLI) when the binary is available; otherwise falls through to subtitle-filter.
   - `filter-subs`: Use the `subtitle-filter` library directly (`rm_fonts`, `rm_ast`, `rm_music`, `rm_effects`, `rm_names`, `rm_author`).
 
 - `strip_sdh`: Enable/disable automatic SDH stripping for tracks flagged as SDH. Default: `true`.
@@ -68,6 +95,7 @@ These behaviors are intentional and have no config knobs — they apply to every
 ## Related
 
 - Filename sanitization (e.g. parenthesis handling, unidecode bracket artifacts from PR #105) lives in `unshackle/core/utilities.py::sanitize_filename` and is governed by `output_template`, not the `subtitle:` config block.
-- Subtitle codec support and the conversion matrix are defined in `unshackle/core/tracks/subtitle.py`.
+- Subtitle codec support is defined in `unshackle/core/tracks/subtitle.py`; the conversion backend
+  registry, capability matrix, and ranks live in `unshackle/core/tracks/subtitle_convert.py`.
 
 ---

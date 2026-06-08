@@ -311,7 +311,7 @@ class dl:
                 )
                 temp_sub.path = temp_path
                 try:
-                    temp_sub.convert(target_codec)
+                    temp_sub.convert(target_codec, forced=True)
                     if temp_sub.path and temp_sub.path.exists():
                         shutil.copy2(temp_sub.path, sidecar_path)
                 finally:
@@ -528,9 +528,13 @@ class dl:
     @click.option("-S", "--subs-only", is_flag=True, default=False, help="Only download subtitle tracks.")
     @click.option("-C", "--chapters-only", is_flag=True, default=False, help="Only download chapter markers.")
     @click.option("-ns", "--no-subs", is_flag=True, default=False, help="Do not download subtitle tracks.")
-    @click.option("--skip-subtitle-errors", is_flag=True, default=False,
-                  help="If a subtitle track fails to download, skip it and continue instead of "
-                       "aborting the whole title (video/audio failures stay fatal).")
+    @click.option(
+        "--skip-subtitle-errors",
+        is_flag=True,
+        default=False,
+        help="If a subtitle track fails to download, skip it and continue instead of "
+        "aborting the whole title (video/audio failures stay fatal).",
+    )
     @click.option("-na", "--no-audio", is_flag=True, default=False, help="Do not download audio tracks.")
     @click.option("-nc", "--no-chapters", is_flag=True, default=False, help="Do not download chapter markers.")
     @click.option("-nv", "--no-video", is_flag=True, default=False, help="Do not download video tracks.")
@@ -2367,18 +2371,16 @@ class dl:
                     for subtitle in title.tracks.subtitles:
                         if sub_format:
                             if subtitle.codec != sub_format:
-                                subtitle.convert(sub_format)
+                                subtitle.convert(sub_format, forced=True)
                         elif subtitle.codec == Subtitle.Codec.TimedTextMarkupLang:
                             # MKV does not support TTML, VTT is the next best option
                             subtitle.convert(Subtitle.Codec.WebVTT)
 
                 with console.status("Checking Subtitles for Fonts..."):
-                    font_names = []
+                    font_names: list[str] = []
                     for subtitle in title.tracks.subtitles:
-                        if subtitle.codec == Subtitle.Codec.SubStationAlphav4:
-                            for line in subtitle.path.read_text("utf8").splitlines():
-                                if line.startswith("Style: "):
-                                    font_names.append(line.removeprefix("Style: ").split(",")[1].strip())
+                        if subtitle.codec in (Subtitle.Codec.SubStationAlpha, Subtitle.Codec.SubStationAlphav4):
+                            font_names.extend(Subtitle.extract_fonts(subtitle.path.read_text("utf8")))
 
                     font_count, missing_fonts = self.attach_subtitle_fonts(font_names, title, temp_font_files)
 

@@ -37,7 +37,7 @@ def find(*names: str) -> Optional[Path]:
 FFMPEG = find("ffmpeg")
 FFProbe = find("ffprobe")
 FFPlay = find("ffplay")
-SubtitleEdit = find("SubtitleEdit")
+SubtitleEdit = find("SubtitleEdit", "seconv")  # seconv = cross-platform subtitleedit-cli (.NET 8)
 ShakaPackager = find(
     "shaka-packager",
     "packager",

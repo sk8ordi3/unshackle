@@ -47,6 +47,10 @@ External tools on your `PATH` (recommended versions):
 - [Bento4](https://github.com/axiomatic-systems/Bento4) - ≥ 1.6.0-639
 - [dovi_tool](https://github.com/quietvoid/dovi_tool) - ≥ 2.1
 
+Optional:
+
+- [SubtitleEdit](https://github.com/SubtitleEdit/subtitleedit/releases) - ≥ 5.0 (`SeConv` CLI)
+
 ## License
 
 [GPL-3.0](LICENSE). Do not use unshackle for content you lack the rights to. Keep the core free and open; keep service code private. Be kind.

@@ -24,6 +24,8 @@ device_private_key
 device_vmp_blob
 unshackle/binaries/*
 !unshackle/binaries/placehere.txt
+# test fixtures (binary subtitle samples) must be tracked despite the *.mp4 rule above
+!tests/tracks/fixtures/*.mp4
 unshackle/cache/
 unshackle/cookies/
 unshackle/certs/
