@@ -22,6 +22,60 @@ def _sanitize_log(value: object) -> str:
     return str(value).replace("\n", "").replace("\r", "").replace("\x00", "")
 
 
+# Job parameters may carry secrets (a raw "user:pass" credential, a proxy URL with embedded
+# userinfo). These must never leave the process via the API or logs, so they are masked
+# wherever parameters are serialized for a response.
+_REDACTED = "***"
+_SENSITIVE_PARAM_KEYS = ("credential", "credentials", "password", "token", "api_key")
+_PROXY_USERINFO_RE = re.compile(r"(?<=://)[^/@]+@")
+
+
+def _redact_parameters(parameters: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a copy of job parameters with secrets masked, safe to serialize."""
+    if not isinstance(parameters, dict):
+        return parameters
+    redacted = dict(parameters)
+    for key in _SENSITIVE_PARAM_KEYS:
+        if redacted.get(key):
+            redacted[key] = _REDACTED
+    proxy = redacted.get("proxy")
+    if isinstance(proxy, str) and "@" in proxy:
+        redacted["proxy"] = _PROXY_USERINFO_RE.sub(f"{_REDACTED}@", proxy)
+    return redacted
+
+
+def _secret_values(parameters: Dict[str, Any]) -> List[str]:
+    """Raw secret strings carried in job parameters, longest first, for scrubbing free text."""
+    if not isinstance(parameters, dict):
+        return []
+    secrets: List[str] = []
+    for key in ("credential", "password", "token", "api_key"):
+        value = parameters.get(key)
+        if isinstance(value, str) and value:
+            secrets.append(value)
+            if key == "credential" and ":" in value:
+                password = value.split(":", 1)[1]
+                if len(password) >= 4:  # short passwords would blanket-replace and garble the text
+                    secrets.append(password)
+    creds = parameters.get("credentials")
+    if isinstance(creds, dict):
+        secrets.extend(v for v in creds.values() if isinstance(v, str) and v)
+    elif isinstance(creds, str) and creds:
+        secrets.append(creds)
+    return sorted(set(secrets), key=len, reverse=True)  # longest first so substrings don't survive
+
+
+def _redact_text(text: Optional[str], parameters: Dict[str, Any]) -> Optional[str]:
+    """Mask proxy userinfo and any known parameter secrets that leaked into a free-text field
+    (error message / details / traceback / worker stderr) before it is returned via the API."""
+    if not isinstance(text, str) or not text:
+        return text
+    text = _PROXY_USERINFO_RE.sub(f"{_REDACTED}@", text)
+    for secret in _secret_values(parameters):
+        text = text.replace(secret, _REDACTED)
+    return text
+
+
 class JobStatus(Enum):
     QUEUED = "queued"
     DOWNLOADING = "downloading"
@@ -54,6 +108,13 @@ class DownloadJob:
     error_traceback: Optional[str] = None
     worker_stderr: Optional[str] = None
 
+    # Human-readable current phase (e.g. "downloading video 1080p")
+    phase: Optional[str] = None
+
+    # Subtitles skipped under skip_subtitle_errors (non-fatal). Each entry is a dl.SkippedSubtitle
+    # dict (id / language / title) so a client can report which weren't available.
+    skipped_subtitles: List[Dict[str, Any]] = field(default_factory=list)
+
     # Cancellation support
     cancel_event: threading.Event = field(default_factory=threading.Event)
 
@@ -66,20 +127,24 @@ class DownloadJob:
             "service": self.service,
             "title_id": self.title_id,
             "progress": self.progress,
+            "phase": self.phase,
+            "skipped_subtitles": self.skipped_subtitles,
         }
 
         if include_full_details:
+            # Error/stderr/traceback are free text a service may have echoed a credential or proxy
+            # URL into, so scrub them with the same secrets that _redact_parameters masks.
             result.update(
                 {
-                    "parameters": self.parameters,
+                    "parameters": _redact_parameters(self.parameters),
                     "started_time": self.started_time.isoformat() if self.started_time else None,
                     "completed_time": self.completed_time.isoformat() if self.completed_time else None,
                     "output_files": self.output_files,
-                    "error_message": self.error_message,
-                    "error_details": self.error_details,
+                    "error_message": _redact_text(self.error_message, self.parameters),
+                    "error_details": _redact_text(self.error_details, self.parameters),
                     "error_code": self.error_code,
-                    "error_traceback": self.error_traceback,
-                    "worker_stderr": self.worker_stderr,
+                    "error_traceback": _redact_text(self.error_traceback, self.parameters),
+                    "worker_stderr": _redact_text(self.worker_stderr, self.parameters),
                 }
             )
 
@@ -117,6 +182,16 @@ def _perform_download(
     from unshackle.core.utils.collections import merge_dict
 
     log.info(f"Starting sync download for job {job_id}")
+
+    # A service caches tokens under cache/<Service>/, keyed by service name only, so two jobs on
+    # one service with different credentials would share a cache. When a per-job credential is set,
+    # namespace the cache dir by a hash of it so the sessions can't cross.
+    job_credential = params.get("credential")
+    if job_credential:
+        import hashlib
+
+        cred_hash = hashlib.sha256(job_credential.encode("utf-8")).hexdigest()[:12]
+        config.directories.cache = config.directories.cache / "_jobs" / cred_hash
 
     # Convert string parameters to enums (API receives strings, dl.result() expects enums)
     vcodec_raw = params.get("vcodec")
@@ -224,6 +299,19 @@ def _perform_download(
         enrich=params.get("enrich", False),
         output_dir=Path(params["output_dir"]) if params.get("output_dir") else None,
     )
+    # Per-request CDM override (a device name in the WVDs dir); get_cdm() takes it first.
+    if params.get("cdm"):
+        dl_instance.cdm_override = params["cdm"]
+
+    # Per-request credential ("user:pass"); feed it into the map get_credentials() reads so a
+    # client can authenticate without anything being persisted to disk. Without a profile,
+    # get_credentials() falls back to "default", so store it there too rather than dropping it
+    # (which would silently authenticate as the server's own default account).
+    if params.get("credential"):
+        svc_creds = config.credentials.get(service)
+        if not isinstance(svc_creds, dict):
+            config.credentials[service] = svc_creds = {}
+        svc_creds[params.get("profile") or "default"] = params["credential"]
 
     service_module = Services.load(service)
 
@@ -276,7 +364,53 @@ def _perform_download(
         # Report initial progress
         progress_callback({"progress": 0.0, "status": "starting"})
 
-        # Simple approach: report progress at key points
+        # Tee each Track.download's progress callable so the downloader's live percentage
+        # is forwarded to the API job (not just 5%/100%), and expose which track is being
+        # downloaded now as a human-readable phase.
+        from unshackle.core.tracks.track import Track as _Track
+
+        if not getattr(_Track, "_api_progress_patched", False):
+            _orig_track_download = _Track.download
+
+            def _download_with_progress(self, *args, **kwargs):
+                inner_progress = kwargs.get("progress")
+                track_type = type(self).__name__
+                phase = {
+                    "Video": "downloading video",
+                    "Audio": "downloading audio",
+                    "Subtitle": "downloading subtitle",
+                }.get(track_type, f"downloading {track_type.lower()}")
+                height = getattr(self, "height", None)
+                language = getattr(self, "language", None)
+                if height:
+                    phase += f" {height}p"
+                elif track_type in ("Audio", "Subtitle") and language:
+                    phase += f" {language}"
+                progress_callback({"phase": phase, "status": "downloading"})
+
+                if callable(inner_progress):
+                    counts = {"completed": 0.0, "total": 0.0}
+
+                    def tee(*tee_args, **tee_kwargs):
+                        if tee_kwargs.get("total"):
+                            counts["total"] = tee_kwargs["total"]
+                        if tee_kwargs.get("completed") is not None:
+                            counts["completed"] = tee_kwargs["completed"]
+                        if "advance" in tee_kwargs:
+                            counts["completed"] += tee_kwargs["advance"]
+                        pct = counts["completed"] * 100.0 / counts["total"] if counts["total"] else 0
+                        if pct:
+                            progress_callback(
+                                {"progress": min(99.0, float(pct)), "phase": phase, "status": "downloading"}
+                            )
+                        return inner_progress(*tee_args, **tee_kwargs)
+
+                    kwargs["progress"] = tee
+                return _orig_track_download(self, *args, **kwargs)
+
+            _Track.download = _download_with_progress
+            _Track._api_progress_patched = True
+
         original_result = dl_instance.result
 
         def result_with_progress(*args, **kwargs):
@@ -326,6 +460,7 @@ def _perform_download(
                 subs_only=params.get("subs_only", False),
                 chapters_only=params.get("chapters_only", False),
                 no_subs=params.get("no_subs", False),
+                skip_subtitle_errors=params.get("skip_subtitle_errors", False),
                 no_audio=params.get("no_audio", False),
                 no_chapters=params.get("no_chapters", False),
                 no_video=params.get("no_video", False),
@@ -364,6 +499,18 @@ def _perform_download(
         log.error(f"Stdout: {stdout_str}")
         log.error(f"Stderr: {stderr_str}")
         raise
+
+    # dl.result() catches a download-worker exception, reports it, but returns normally (exit 0).
+    # It sets download_failed in that case, so the job isn't reported as completed with no output.
+    if getattr(dl_instance, "download_failed", False):
+        detail = (stdout_capture.getvalue() + stderr_capture.getvalue())[-200:].strip()
+        raise Exception("download worker failed: " + (detail or "see logs"))
+
+    # Surface any subtitles that were skipped (non-fatal failures) so the client can report them.
+    if progress_callback:
+        skipped_subs = getattr(dl_instance, "skipped_subtitles", None)
+        if skipped_subs:
+            progress_callback({"skipped_subtitles": list(skipped_subs)})
 
     output_files = [str(p) for p in dl_instance.completed_files]
     log.info(f"Download completed for job {job_id}, {len(output_files)} file(s) in {original_download_dir}")
@@ -647,6 +794,10 @@ class DownloadQueueManager:
                     if os.path.exists(progress_path):
                         with open(progress_path, "r", encoding="utf-8") as handle:
                             progress_data = json.load(handle)
+                            if progress_data.get("phase") and progress_data["phase"] != job.phase:
+                                job.phase = progress_data["phase"]
+                            if progress_data.get("skipped_subtitles"):
+                                job.skipped_subtitles = progress_data["skipped_subtitles"]
                             if "progress" in progress_data:
                                 new_progress = float(progress_data["progress"])
                                 if new_progress != job.progress:
@@ -670,14 +821,18 @@ class DownloadQueueManager:
             stdout = stdout_bytes.decode("utf-8", errors="ignore")
             stderr = stderr_bytes.decode("utf-8", errors="ignore")
 
+            # A service can echo a credential or a proxy URL into its output, so scrub it before
+            # it reaches the log as well, not only the API response.
+            safe_stdout = _redact_text(stdout.strip(), job.parameters)
+            safe_stderr = _redact_text(stderr.strip(), job.parameters)
             if stdout.strip():
-                log.debug(f"Worker stdout for job {job.job_id}: {stdout.strip()}")
+                log.debug(f"Worker stdout for job {job.job_id}: {safe_stdout}")
             if stderr.strip():
                 job.worker_stderr = stderr.strip()
                 if returncode != 0:
-                    log.warning(f"Worker stderr for job {job.job_id}: {stderr.strip()}")
+                    log.warning(f"Worker stderr for job {job.job_id}: {safe_stderr}")
                 else:
-                    log.debug(f"Worker stderr for job {job.job_id}: {stderr.strip()}")
+                    log.debug(f"Worker stderr for job {job.job_id}: {safe_stderr}")
 
             result_data: Optional[Dict[str, Any]] = None
             try:
@@ -718,10 +873,6 @@ class DownloadQueueManager:
                     os.remove(path)
                 except OSError:
                     pass
-
-    def _execute_download_sync(self, job: DownloadJob) -> List[str]:
-        """Execute download synchronously using existing dl.py logic."""
-        return _perform_download(job.job_id, job.service, job.title_id, job.parameters.copy(), job.cancel_event)
 
     async def _cleanup_worker(self):
         """Worker that periodically cleans up old jobs."""

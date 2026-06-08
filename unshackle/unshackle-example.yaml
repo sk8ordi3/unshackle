@@ -525,6 +525,17 @@ serve:
   # playready_devices:  # PlayReady device paths (auto-populated from directories.prds)
   #   - '/path/to/device.prd'
 
+  # Per-request override gates (both default OFF = locked to server-side config).
+  # A /api/download job may ask to use a specific server-side CDM device or to
+  # authenticate with client-supplied credentials; both are rejected with 403 unless
+  # explicitly opted in here, so a default deployment can't be driven to use arbitrary
+  # devices or inject credentials.
+  # cdm_overrides: true             # true = allow any device; or a list of permitted device names:
+  # cdm_overrides:
+  #   - generic_nexus_4464_l3
+  # allow_job_credentials: true     # allow a per-request `credential` / `credentials` in a job
+  #                                 # (each distinct credential gets an isolated token cache)
+
   # Optional: any /api/download flag can be set here as a server-side default.
   # Per-request body values still win. Useful for raising concurrency without
   # changing every client call. Full list of accepted keys: see docs/API.md.

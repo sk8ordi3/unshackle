@@ -673,6 +673,10 @@ class dl:
         # Subtitles skipped under --skip-subtitle-errors, recorded so an embedding caller can
         # report which weren't available without parsing the console output. See SkippedSubtitle.
         self.skipped_subtitles: list[SkippedSubtitle] = []
+        # result() catches a download-worker failure, reports it, and returns rather than
+        # re-raising (so the CLI still exits cleanly). Flag it so an embedding caller (the API
+        # worker) can tell the title did not complete instead of reading it as a success.
+        self.download_failed: bool = False
 
         if not config.output_template:
             raise click.ClickException(
@@ -2318,6 +2322,9 @@ class dl:
                     )
                 return
             except Exception as e:  # noqa
+                # Reported and swallowed (no re-raise) so the CLI exits cleanly; flag it so the
+                # API worker sees the title failed rather than completing with no output.
+                self.download_failed = True
                 error_messages = [
                     ":x: Download Failed...",
                     f"   {type(e).__name__}: {e}",
@@ -3455,7 +3462,9 @@ class dl:
         Now supports quality-based selection when quality is provided.
         Raises a ValueError if there's a problem getting a CDM.
         """
-        cdm_name = config.cdm.get(service) or config.cdm.get("default")
+        # A per-request override (set by the REST API per job) takes precedence over the
+        # global config, so a job can select a specific CDM device without mutating shared state.
+        cdm_name = getattr(self, "cdm_override", None) or config.cdm.get(service) or config.cdm.get("default")
         if not cdm_name:
             return None
 
