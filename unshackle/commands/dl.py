@@ -862,11 +862,16 @@ class dl:
                         self.service_config = yaml.safe_load(service_config_path.read_text(encoding="utf8"))
                         self.log.info("Service Config loaded")
                         if self.debug_logger:
+                            # log key names only -- the full config carries service certificates,
+                            # device fingerprints and endpoints that bloat the log and may be sensitive
                             self.debug_logger.log(
                                 level="DEBUG",
                                 operation="load_service_config",
                                 service=self.service,
-                                context={"config_path": str(service_config_path), "config": self.service_config},
+                                context={
+                                    "config_path": str(service_config_path),
+                                    "config_keys": sorted(self.service_config or []),
+                                },
                             )
                 except KeyError:
                     pass

@@ -80,7 +80,8 @@ class PlayReady:
     def _extract_kids_from_pssh_b64(self, pssh_b64: str) -> list[UUID]:
         """Extract all KIDs from base64-encoded PSSH data."""
         try:
-            import xml.etree.ElementTree as ET
+            # PSSH XML comes from third-party manifests; defusedxml guards against entity expansion
+            import defusedxml.ElementTree as ET
 
             # Decode the PSSH
             pssh_bytes = base64.b64decode(pssh_b64)

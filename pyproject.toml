@@ -67,6 +67,7 @@ dependencies = [
     "animeapi-py>=0.6.0",
     "rnet>=2.4.2",
     "bandit>=1.9.4",
+    "defusedxml>=0.7.1",
 ]
 
 [project.urls]

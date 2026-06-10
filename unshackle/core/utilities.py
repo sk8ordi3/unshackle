@@ -30,6 +30,7 @@ from unidecode import unidecode
 
 from unshackle.core.config import config
 from unshackle.core.constants import LANGUAGE_EXACT_DISTANCE, LANGUAGE_MAX_DISTANCE
+from unshackle.core.utils.redact import redact_text
 
 """
 Utility functions for the unshackle media archival tool.
@@ -836,7 +837,7 @@ class DebugLogger:
         if operation:
             entry["operation"] = operation
         if message:
-            entry["message"] = message
+            entry["message"] = redact_text(message)
         if service:
             entry["service"] = service
         if context:
@@ -853,8 +854,10 @@ class DebugLogger:
         if error:
             entry["error"] = {
                 "type": type(error).__name__,
-                "message": str(error),
-                "traceback": traceback.format_exception(type(error), error, error.__traceback__),
+                "message": redact_text(str(error)),
+                "traceback": [
+                    redact_text(line) for line in traceback.format_exception(type(error), error, error.__traceback__)
+                ],
             }
 
         for key, value in kwargs.items():
@@ -875,7 +878,12 @@ class DebugLogger:
         if data is None:
             return None
 
-        if isinstance(data, (str, int, float, bool)):
+        if isinstance(data, str):
+            # mask URL userinfo and secret-bearing query params that key-based
+            # redaction can't catch (e.g. a proxy URL inside a non-sensitive field)
+            return redact_text(data)
+
+        if isinstance(data, (int, float, bool)):
             return data
 
         if isinstance(data, (list, tuple)):

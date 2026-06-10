@@ -7,6 +7,7 @@ from aiohttp import web
 
 from unshackle.core.api.errors import APIError, APIErrorCode, handle_api_exception
 from unshackle.core.api.input_bridge import AuthStatus, InputBridge
+from unshackle.core.api.sanitize import sanitize_log
 from unshackle.core.config import config
 from unshackle.core.constants import AUDIO_CODEC_MAP, DYNAMIC_RANGE_MAP, VIDEO_CODEC_MAP
 from unshackle.core.proxies.resolve import initialize_proxy_providers, resolve_proxy
@@ -15,11 +16,6 @@ from unshackle.core.titles import Episode, Movie, Title_T
 from unshackle.core.tracks import Audio, Subtitle, Video
 
 log = logging.getLogger("api")
-
-
-def sanitize_log(value: object) -> str:
-    """Sanitize a value for safe logging by removing newlines and control characters."""
-    return str(value).replace("\n", "").replace("\r", "").replace("\x00", "")
 
 
 DEFAULT_DOWNLOAD_PARAMS = {
@@ -126,7 +122,9 @@ def load_full_cdm(service: str, profile: Optional[str], cdm_type: Optional[str] 
     try:
         return load_cdm(cdm_name, service_name=service)
     except Exception as exc:  # noqa: BLE001 - fall back to stub on load failure
-        log.warning(f"load_cdm({cdm_name!r}) failed for {service}: {exc}; using lightweight stub")
+        log.warning(
+            f"load_cdm({sanitize_log(cdm_name)!r}) failed for {sanitize_log(service)}: {exc}; using lightweight stub"
+        )
         return _resolve_server_cdm(service, profile, cdm_type)
 
 
@@ -735,7 +733,9 @@ async def list_tracks_handler(data: Dict[str, Any], request: Optional[web.Reques
                         wanted = season_range.parse_tokens(*wanted_param)
                     else:
                         wanted = season_range.parse_tokens(wanted_param)
-                    log.debug(f"Parsed wanted '{wanted_param}' into {len(wanted)} episodes: {wanted[:10]}...")
+                    log.debug(
+                        f"Parsed wanted '{sanitize_log(wanted_param)}' into {len(wanted)} episodes: {wanted[:10]}..."
+                    )
                 except (Exception, SystemExit) as e:
                     raise APIError(
                         APIErrorCode.INVALID_PARAMETERS,
@@ -1910,13 +1910,13 @@ def _resolve_handler_proxy(data: Dict[str, Any], normalized_service: str) -> tup
             server_region = None
 
         if server_region and server_region == client_region.lower():
-            log.info(f"Server already in client region '{client_region}', no proxy needed")
+            log.info(f"Server already in client region '{sanitize_log(client_region)}', no proxy needed")
         else:
             try:
                 proxy_param = resolve_proxy(client_region, proxy_providers)
-                log.info(f"Using server proxy for client region '{client_region}'")
+                log.info(f"Using server proxy for client region '{sanitize_log(client_region)}'")
             except ValueError:
-                log.debug(f"No server proxy available for client region '{client_region}'")
+                log.debug(f"No server proxy available for client region '{sanitize_log(client_region)}'")
 
     return proxy_param, proxy_providers
 
@@ -2299,9 +2299,9 @@ async def session_license_handler(
                     if track_drm_type:
                         actual_drm_type = track_drm_type
             except SystemExit:
-                log.warning(f"Service exited while resolving keys for track {tid[:12]}, skipping")
+                log.warning(f"Service exited while resolving keys for track {sanitize_log(tid[:12])}, skipping")
             except (Exception, SystemExit) as e:
-                log.warning(f"Failed to resolve keys for track {tid[:12]}: {e}")
+                log.warning(f"Failed to resolve keys for track {sanitize_log(tid[:12])}: {e}")
 
         response: Dict[str, Any] = {"keys": all_keys}
         if actual_drm_type:
@@ -2347,7 +2347,7 @@ async def session_license_handler(
 
         if mode == "server_cdm":
             keys = _handle_single_server_cdm(service, title, track, pssh_b64, drm_type, request)
-            log.info(f"Server CDM resolved {len(keys)} key(s) for track {track_id[:12]}")
+            log.info(f"Server CDM resolved {len(keys)} key(s) for track {sanitize_log(track_id[:12])}")
             return web.json_response({"keys": keys})
 
         return _handle_proxy_license(service, title, track, challenge_b64, drm_type)
@@ -2357,7 +2357,7 @@ async def session_license_handler(
     except SystemExit:
         raise APIError(APIErrorCode.SERVICE_ERROR, "Service exited during license request")
     except (Exception, SystemExit) as e:
-        log.exception(f"Error proxying license for track {track_id}")
+        log.exception(f"Error proxying license for track {sanitize_log(track_id)}")
         debug_mode = request.app.get("debug_api", False) if request else False
         return handle_api_exception(
             e,
