@@ -35,6 +35,7 @@ temp/
 logs/
 services/
 /.[^/]*/
+!/.github/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
