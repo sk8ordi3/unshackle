@@ -23,7 +23,7 @@ from subtitle_filter import Subtitles
 from unshackle.core import binaries
 from unshackle.core.config import config
 from unshackle.core.tracks.track import Track
-from unshackle.core.utilities import get_debug_logger, log_event, try_ensure_utf8
+from unshackle.core.utilities import try_ensure_utf8
 from unshackle.core.utils.subprocess import log_tool_run
 from unshackle.core.utils.webvtt import merge_segmented_webvtt
 
@@ -624,30 +624,7 @@ class Subtitle(Track):
             config.subtitle.get("conversion_method") or getattr(self, "preferred_conversion_method", None) or "auto"
         )
         pin = None if method == "auto" else method
-
-        dl = get_debug_logger()
-        if not dl:
-            return run_conversion(self, codec, pin=pin, forced=forced)
-
-        start = time.monotonic()
-        try:
-            result = run_conversion(self, codec, pin=pin, forced=forced)
-        except Exception as e:
-            dl.log_error(
-                "subtitle_convert",
-                e,
-                context={"from": str(self.codec), "to": str(codec), "method": method, "forced": forced},
-            )
-            raise
-        log_event(
-            "subtitle_convert",
-            level="INFO",
-            message=f"Converted subtitle {self.codec} -> {codec}",
-            context={"from": str(self.codec), "to": str(codec), "method": method, "forced": forced},
-            duration_ms=round((time.monotonic() - start) * 1000, 1),
-            success=True,
-        )
-        return result
+        return run_conversion(self, codec, pin=pin, forced=forced)
 
     @staticmethod
     def extract_fonts(text: str) -> set[str]:

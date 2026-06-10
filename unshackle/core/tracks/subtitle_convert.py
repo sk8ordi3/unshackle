@@ -318,7 +318,6 @@ def run_conversion(sub: Subtitle, target: Codec, *, pin: Optional[str] = None, f
             last_exc = e
             log.debug(f"Subtitle backend {backend.name} failed ({source.name}->{target.name}): {e}")
             continue
-        log.debug(f"Converted subtitle {source.name}->{target.name} via {backend.name}")
         return finalize(sub, target, out)
 
     raise RuntimeError(f"All subtitle backends failed for {source.name}->{target.name}") from last_exc

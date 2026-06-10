@@ -136,6 +136,13 @@ debug_keys:
   # Useful for debugging key retrieval and decryption issues
   # SECURITY NOTE: Passwords, tokens, cookies, and session tokens
   # are ALWAYS redacted regardless of this setting
+
+debug_requests:
+  false # Show per-request HTTP library logs under --debug (default: false)
+  # When false, --debug mutes the noisy per-segment connection logs from the
+  # HTTP libraries (urllib3/requests/rnet, e.g. 'GET ...m4s 200'), keeping
+  # unshackle's own DEBUG output readable.
+  # Set to true to see every individual request/segment download.
   # Only affects: content_key, key fields (the actual CEKs)
   # Never affects: kid, keys_count, key_id (metadata is always logged)
 

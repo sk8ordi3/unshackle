@@ -1008,9 +1008,7 @@ class dl:
                     }
 
                 if cdm_info:
-                    log_event(
-                        "load_cdm", level="INFO", service=self.service, context={"cdm": cdm_info}
-                    )
+                    log_event("load_cdm", level="INFO", service=self.service, context={"cdm": cdm_info})
 
         self.proxy_providers = []
         if no_proxy:
@@ -1805,7 +1803,9 @@ class dl:
                                     for v in non_hybrid_tracks
                                     if any(v.height == res or int(v.width * (9 / 16)) == res for res in quality)
                                 ]
-                                title.tracks.videos = Tracks.merge_video_selections(hybrid_selected, non_hybrid_selected)
+                                title.tracks.videos = Tracks.merge_video_selections(
+                                    hybrid_selected, non_hybrid_selected
+                                )
                             else:
                                 title.tracks.videos = hybrid_selected
                         else:
@@ -2422,15 +2422,30 @@ class dl:
                             sidecar_original_paths[subtitle.id] = original_path
 
                 with console.status("Converting Subtitles..."):
+                    sub_conversions: dict[tuple[str, str], int] = {}
                     for subtitle in title.tracks.subtitles:
                         if sub_format == "original":
                             continue
                         if sub_format:
                             if subtitle.codec != sub_format:
+                                src = getattr(subtitle.codec, "name", str(subtitle.codec))
+                                dst = getattr(sub_format, "name", str(sub_format))
                                 subtitle.convert(sub_format, forced=True)
+                                sub_conversions[(src, dst)] = sub_conversions.get((src, dst), 0) + 1
                         elif subtitle.codec == Subtitle.Codec.TimedTextMarkupLang:
                             # MKV does not support TTML, VTT is the next best option
+                            src = getattr(subtitle.codec, "name", str(subtitle.codec))
                             subtitle.convert(Subtitle.Codec.WebVTT)
+                            sub_conversions[(src, Subtitle.Codec.WebVTT.name)] = (
+                                sub_conversions.get((src, Subtitle.Codec.WebVTT.name), 0) + 1
+                            )
+                    for (src, dst), count in sub_conversions.items():
+                        log_event(
+                            "subtitle_convert",
+                            level="INFO",
+                            message=f"Converted {src}->{dst} x{count}",
+                            context={"from": src, "to": dst, "count": count},
+                        )
 
                 with console.status("Checking Subtitles for Fonts..."):
                     font_names: list[str] = []
@@ -2518,7 +2533,9 @@ class dl:
 
                 # Now repack the decrypted tracks
                 if progress_sink and any(getattr(t, "needs_repack", False) for t in title.tracks):
-                    progress_sink({"phase": "repackaging", "progress": 92.0, "status": "downloading", "active_tracks": []})
+                    progress_sink(
+                        {"phase": "repackaging", "progress": 92.0, "status": "downloading", "active_tracks": []}
+                    )
                 with console.status("Repackaging tracks with FFMPEG..."):
                     has_repacked = False
                     for track in title.tracks:
@@ -2686,7 +2703,9 @@ class dl:
                             mux_video_standalone(video_track)
 
                     if progress_sink:
-                        progress_sink({"phase": "muxing", "progress": 96.0, "status": "downloading", "active_tracks": []})
+                        progress_sink(
+                            {"phase": "muxing", "progress": 96.0, "status": "downloading", "active_tracks": []}
+                        )
                     try:
                         with Live(Padding(progress, (0, 5, 1, 5)), console=console):
                             mux_index = 0

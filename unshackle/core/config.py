@@ -126,6 +126,7 @@ class Config:
 
         self.debug: bool = kwargs.get("debug", False)
         self.debug_keys: bool = kwargs.get("debug_keys", False)
+        self.debug_requests: bool = kwargs.get("debug_requests", False)
 
     def _validate_output_templates(self) -> None:
         """Validate output template configurations and warn about potential issues."""
