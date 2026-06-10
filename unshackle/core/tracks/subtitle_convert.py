@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import time
 from pathlib import Path
 from typing import Optional, Protocol
 
@@ -25,6 +26,7 @@ from subby import CommonIssuesFixer, SAMIConverter, WebVTTConverter, WVTTConvert
 
 from unshackle.core import binaries
 from unshackle.core.tracks.subtitle import Subtitle
+from unshackle.core.utils.subprocess import log_tool_run
 
 log = logging.getLogger("subtitle")
 
@@ -146,7 +148,16 @@ class SubtitleEditBackend:
             output_folder=out.parent,
             convert_colors=(target == Codec.SubRip),
         )
+        se_start = time.monotonic()
         subprocess.run(args, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        log_tool_run(
+            "SubtitleEdit convert",
+            "SubtitleEdit",
+            0,
+            duration_ms=round((time.monotonic() - se_start) * 1000, 1),
+            source=str(source),
+            target=str(target),
+        )
         # SE5 names the output <input-stem>.<format-ext>, which may differ from our target
         # suffix (e.g. timedtext1.0 -> .ttml). Normalise it onto `out`.
         if not out.exists():

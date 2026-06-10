@@ -20,7 +20,8 @@ from unshackle.core.drm import DRM_T, PlayReady, Widevine
 from unshackle.core.events import events
 from unshackle.core.session import RnetSession
 from unshackle.core.tracks import Audio, Subtitle, Track, Tracks, Video
-from unshackle.core.utilities import get_debug_logger, try_ensure_utf8
+from unshackle.core.utilities import log_event, try_ensure_utf8
+from unshackle.core.utils.redact import safe_display_url
 from unshackle.core.utils.xml import load_xml
 
 
@@ -45,6 +46,12 @@ class ISM:
         if res.url != url:
             url = res.url
         res.raise_for_status()
+        log_event(
+            "manifest_ism_fetch",
+            level="DEBUG",
+            message=f"Fetched ISM manifest ({len(res.content)} bytes)",
+            context={"url": safe_display_url(url), "size": len(res.content)},
+        )
         return cls(load_xml(res.content), url)
 
     @classmethod
@@ -220,6 +227,22 @@ class ISM:
                         )
                     )
         tracks.manifest_url = self.url
+
+        log_event(
+            "manifest_ism_parse",
+            level="INFO",
+            message=(
+                f"Parsed ISM manifest: {len(tracks.videos)} video, "
+                f"{len(tracks.audio)} audio, {len(tracks.subtitles)} subtitle track(s)"
+            ),
+            context={
+                "videos": len(tracks.videos),
+                "audio": len(tracks.audio),
+                "subtitles": len(tracks.subtitles),
+                "ranges": sorted({str(v.range) for v in tracks.videos}),
+                "vcodecs": sorted({str(v.codec) for v in tracks.videos}),
+            },
+        )
         return tracks
 
     @staticmethod
@@ -280,22 +303,20 @@ class ISM:
             session=session,
         )
 
-        debug_logger = get_debug_logger()
-        if debug_logger:
-            debug_logger.log(
-                level="DEBUG",
-                operation="manifest_ism_download_start",
-                message="Starting ISM manifest download",
-                context={
-                    "track_id": getattr(track, "id", None),
-                    "track_type": track.__class__.__name__,
-                    "total_segments": len(segments),
-                    "downloader": "requests",
-                    "has_drm": bool(session_drm),
-                    "drm_type": session_drm.__class__.__name__ if session_drm else None,
-                    "save_path": str(save_path),
-                },
-            )
+        log_event(
+            "manifest_ism_download_start",
+            level="DEBUG",
+            message="Starting ISM manifest download",
+            context={
+                "track_id": getattr(track, "id", None),
+                "track_type": track.__class__.__name__,
+                "total_segments": len(segments),
+                "downloader": "requests",
+                "has_drm": bool(session_drm),
+                "drm_type": session_drm.__class__.__name__ if session_drm else None,
+                "save_path": str(save_path),
+            },
+        )
 
         for status_update in downloader(**downloader_args):
             file_downloaded = status_update.get("file_downloaded")
@@ -310,19 +331,18 @@ class ISM:
         # Verify output directory exists and contains files
         if not save_dir.exists():
             error_msg = f"Output directory does not exist: {save_dir}"
-            if debug_logger:
-                debug_logger.log(
-                    level="ERROR",
-                    operation="manifest_ism_download_output_missing",
-                    message=error_msg,
-                    context={
-                        "track_id": getattr(track, "id", None),
-                        "track_type": track.__class__.__name__,
-                        "save_dir": str(save_dir),
-                        "save_path": str(save_path),
-                        "downloader": "requests",
-                    },
-                )
+            log_event(
+                "manifest_ism_download_output_missing",
+                level="ERROR",
+                message=error_msg,
+                context={
+                    "track_id": getattr(track, "id", None),
+                    "track_type": track.__class__.__name__,
+                    "save_dir": str(save_dir),
+                    "save_path": str(save_path),
+                    "downloader": "requests",
+                },
+            )
             raise FileNotFoundError(error_msg)
 
         for control_file in save_dir.glob("*.!dev"):
@@ -330,38 +350,36 @@ class ISM:
 
         segments_to_merge = [x for x in sorted(save_dir.iterdir()) if x.is_file()]
 
-        if debug_logger:
-            debug_logger.log(
-                level="DEBUG",
-                operation="manifest_ism_download_complete",
-                message="ISM download complete, preparing to merge",
+        log_event(
+            "manifest_ism_download_complete",
+            level="DEBUG",
+            message="ISM download complete, preparing to merge",
+            context={
+                "track_id": getattr(track, "id", None),
+                "track_type": track.__class__.__name__,
+                "save_dir": str(save_dir),
+                "save_dir_exists": save_dir.exists(),
+                "segments_found": len(segments_to_merge),
+                "segment_files": [f.name for f in segments_to_merge[:10]],  # Limit to first 10
+                "downloader": "requests",
+            },
+        )
+
+        if not segments_to_merge:
+            error_msg = f"No segment files found in output directory: {save_dir}"
+            all_contents = list(save_dir.iterdir()) if save_dir.exists() else []
+            log_event(
+                "manifest_ism_download_no_segments",
+                level="ERROR",
+                message=error_msg,
                 context={
                     "track_id": getattr(track, "id", None),
                     "track_type": track.__class__.__name__,
                     "save_dir": str(save_dir),
-                    "save_dir_exists": save_dir.exists(),
-                    "segments_found": len(segments_to_merge),
-                    "segment_files": [f.name for f in segments_to_merge[:10]],  # Limit to first 10
+                    "directory_contents": [str(p) for p in all_contents],
                     "downloader": "requests",
                 },
             )
-
-        if not segments_to_merge:
-            error_msg = f"No segment files found in output directory: {save_dir}"
-            if debug_logger:
-                all_contents = list(save_dir.iterdir()) if save_dir.exists() else []
-                debug_logger.log(
-                    level="ERROR",
-                    operation="manifest_ism_download_no_segments",
-                    message=error_msg,
-                    context={
-                        "track_id": getattr(track, "id", None),
-                        "track_type": track.__class__.__name__,
-                        "save_dir": str(save_dir),
-                        "directory_contents": [str(p) for p in all_contents],
-                        "downloader": "requests",
-                    },
-                )
             raise FileNotFoundError(error_msg)
 
         with open(save_path, "wb") as f:

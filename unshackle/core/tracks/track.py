@@ -24,7 +24,7 @@ from unshackle.core.downloaders import requests
 from unshackle.core.drm import DRM_T, PlayReady, Widevine
 from unshackle.core.events import events
 from unshackle.core.session import RnetSession
-from unshackle.core.utilities import get_boxes, try_ensure_utf8
+from unshackle.core.utilities import get_boxes, log_event, try_ensure_utf8
 from unshackle.core.utils.subprocess import ffprobe
 
 
@@ -766,6 +766,13 @@ class Track:
                 stderr=subprocess.PIPE,
             )
 
+        log_event(
+            "repackage",
+            level="DEBUG",
+            message=f"Repackaging {self.__class__.__name__} {original_path.name} with ffmpeg",
+            context={"track_type": self.__class__.__name__, "id": self.id, "file": original_path.name},
+        )
+
         try:
             _ffmpeg()
         except subprocess.CalledProcessError as e:
@@ -777,6 +784,18 @@ class Track:
 
         original_path.unlink()
         self.path = output_path
+
+        log_event(
+            "repackage_complete",
+            level="DEBUG",
+            message=f"Repackaged {self.__class__.__name__} -> {output_path.name}",
+            context={
+                "track_type": self.__class__.__name__,
+                "id": self.id,
+                "output": output_path.name,
+                "output_size": output_path.stat().st_size if output_path.exists() else 0,
+            },
+        )
 
 
 __all__ = ("Track",)

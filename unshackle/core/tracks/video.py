@@ -4,6 +4,7 @@ import logging
 import math
 import re
 import subprocess
+import time
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -14,7 +15,8 @@ from unshackle.core import binaries
 from unshackle.core.config import config
 from unshackle.core.tracks.subtitle import Subtitle
 from unshackle.core.tracks.track import Track
-from unshackle.core.utilities import FPS, get_boxes
+from unshackle.core.utilities import FPS, get_boxes, log_event
+from unshackle.core.utils.subprocess import log_tool_run
 
 
 class Video(Track):
@@ -379,6 +381,7 @@ class Video(Track):
         original_path = self.path
         output_path = original_path.with_stem(f"{original_path.stem}_{['limited', 'full'][range_]}_range")
 
+        range_start = time.monotonic()
         subprocess.run(
             [
                 binaries.FFMPEG,
@@ -394,6 +397,14 @@ class Video(Track):
                 str(output_path),
             ],
             check=True,
+        )
+        log_tool_run(
+            "ffmpeg change range",
+            "ffmpeg",
+            0,
+            duration_ms=round((time.monotonic() - range_start) * 1000, 1),
+            codec=str(self.codec),
+            full_range=bool(range_),
         )
 
         self.path = output_path
@@ -458,6 +469,18 @@ class Video(Track):
 
         self.path = output_path
         original_path.unlink()
+
+        log_event(
+            "normalize_vui",
+            level="DEBUG",
+            message=f"Rewrote {self.codec} VUI colour metadata to match {self.range}",
+            context={
+                "codec": str(self.codec),
+                "range": str(self.range),
+                "vui": {"primaries": primaries, "transfer": transfer, "matrix": matrix},
+                "id": self.id,
+            },
+        )
         return True
 
     def ccextractor(
@@ -473,6 +496,7 @@ class Video(Track):
         out_path = Path(out_path)
 
         def _run_ccextractor() -> bool:
+            cc_start = time.monotonic()
             try:
                 subprocess.run(
                     [binaries.CCExtractor, "-trim", "-nobom", "-noru", "-ru1", "-o", out_path, self.path],
@@ -482,8 +506,21 @@ class Video(Track):
                 )
             except subprocess.CalledProcessError as e:
                 out_path.unlink(missing_ok=True)
+                log_tool_run(
+                    "ccextractor",
+                    "ccextractor",
+                    e.returncode,
+                    duration_ms=round((time.monotonic() - cc_start) * 1000, 1),
+                )
                 if e.returncode != 10:  # 10 = No captions found
                     raise
+                return out_path.exists()
+            log_tool_run(
+                "ccextractor",
+                "ccextractor",
+                0,
+                duration_ms=round((time.monotonic() - cc_start) * 1000, 1),
+            )
             return out_path.exists()
 
         # Try on the original file first (preserves container-level CC data like c608 boxes),
@@ -578,6 +615,7 @@ class Video(Track):
 
         original_path = self.path
         cleaned_path = original_path.with_suffix(f".cleaned{original_path.suffix}")
+        eia_start = time.monotonic()
         subprocess.run(
             [
                 binaries.FFMPEG,
@@ -597,6 +635,12 @@ class Video(Track):
                 str(cleaned_path),
             ],
             check=True,
+        )
+        log_tool_run(
+            "ffmpeg remove EIA-CC",
+            "ffmpeg",
+            0,
+            duration_ms=round((time.monotonic() - eia_start) * 1000, 1),
         )
 
         log.info(" + Removed")

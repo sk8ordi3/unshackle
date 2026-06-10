@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import time
 from collections import OrderedDict, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -13,6 +14,7 @@ from requests import Session
 
 from unshackle.core.binaries import FFProbe
 from unshackle.core.session import RnetSession
+from unshackle.core.utils.subprocess import log_tool_run
 
 if TYPE_CHECKING:
     from unshackle.core.tracks import Track
@@ -421,12 +423,19 @@ def probe_bytes_duration(data: Optional[bytes], log: logging.Logger) -> Optional
         return None
     ffprobe_bin = str(FFProbe) if FFProbe else "ffprobe"
     try:
+        probe_start = time.monotonic()
         result = subprocess.run(
             [ffprobe_bin, "-v", "error", "-show_entries", "format=duration:stream=duration", "-of", "json", "pipe:"],
             input=data,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=60,
+        )
+        log_tool_run(
+            "ffprobe duration probe",
+            "ffprobe",
+            result.returncode,
+            duration_ms=round((time.monotonic() - probe_start) * 1000, 1),
         )
         info = json.loads(result.stdout or b"{}")
         candidates = [info.get("format", {}).get("duration")]

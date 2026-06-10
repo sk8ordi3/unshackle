@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 import subprocess
+import time
 from collections import defaultdict
 from enum import Enum
 from functools import partial
@@ -22,7 +23,8 @@ from subtitle_filter import Subtitles
 from unshackle.core import binaries
 from unshackle.core.config import config
 from unshackle.core.tracks.track import Track
-from unshackle.core.utilities import try_ensure_utf8
+from unshackle.core.utilities import get_debug_logger, log_event, try_ensure_utf8
+from unshackle.core.utils.subprocess import log_tool_run
 from unshackle.core.utils.webvtt import merge_segmented_webvtt
 
 # silence srt library INFO logging
@@ -622,7 +624,30 @@ class Subtitle(Track):
             config.subtitle.get("conversion_method") or getattr(self, "preferred_conversion_method", None) or "auto"
         )
         pin = None if method == "auto" else method
-        return run_conversion(self, codec, pin=pin, forced=forced)
+
+        dl = get_debug_logger()
+        if not dl:
+            return run_conversion(self, codec, pin=pin, forced=forced)
+
+        start = time.monotonic()
+        try:
+            result = run_conversion(self, codec, pin=pin, forced=forced)
+        except Exception as e:
+            dl.log_error(
+                "subtitle_convert",
+                e,
+                context={"from": str(self.codec), "to": str(codec), "method": method, "forced": forced},
+            )
+            raise
+        log_event(
+            "subtitle_convert",
+            level="INFO",
+            message=f"Converted subtitle {self.codec} -> {codec}",
+            context={"from": str(self.codec), "to": str(codec), "method": method, "forced": forced},
+            duration_ms=round((time.monotonic() - start) * 1000, 1),
+            success=True,
+        )
+        return result
 
     @staticmethod
     def extract_fonts(text: str) -> set[str]:
@@ -1036,6 +1061,7 @@ class Subtitle(Track):
             from unshackle.core.tracks.subtitle_convert import SUBTITLE_EDIT_FORMATS, subtitleedit_args
 
             output_format = SUBTITLE_EDIT_FORMATS.get(self.codec, self.codec.name.lower())
+            se_start = time.monotonic()
             subprocess.run(
                 subtitleedit_args(
                     binaries.SubtitleEdit, self.path, output_format, output_folder=self.path.parent, remove_hi=True
@@ -1043,6 +1069,13 @@ class Subtitle(Track):
                 check=True,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+            )
+            log_tool_run(
+                "SubtitleEdit strip SDH",
+                "SubtitleEdit",
+                0,
+                duration_ms=round((time.monotonic() - se_start) * 1000, 1),
+                format=output_format,
             )
         else:
             if config.subtitle.get("convert_before_strip", True) and self.codec != Subtitle.Codec.SubRip:
@@ -1088,6 +1121,7 @@ class Subtitle(Track):
 
         output_format = SUBTITLE_EDIT_FORMATS.get(self.codec, self.codec.name.lower())
 
+        se_start = time.monotonic()
         subprocess.run(
             subtitleedit_args(
                 binaries.SubtitleEdit, self.path, output_format, output_folder=self.path.parent, reverse_rtl=True
@@ -1095,6 +1129,13 @@ class Subtitle(Track):
             check=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+        )
+        log_tool_run(
+            "SubtitleEdit reverse RTL",
+            "SubtitleEdit",
+            0,
+            duration_ms=round((time.monotonic() - se_start) * 1000, 1),
+            format=output_format,
         )
 
 

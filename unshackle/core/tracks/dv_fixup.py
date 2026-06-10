@@ -22,7 +22,7 @@ from rich.rule import Rule
 from unshackle.core.binaries import FFMPEG, DoviTool
 from unshackle.core.config import config
 from unshackle.core.console import console
-from unshackle.core.utilities import get_debug_logger
+from unshackle.core.utilities import log_event
 from unshackle.core.utils import dovi
 from unshackle.core.utils.subprocess import run_step
 
@@ -35,7 +35,6 @@ class DVFixup:
 
     def __init__(self, video: "Video") -> None:
         self.log = logging.getLogger("dv-fixup")
-        self.debug_logger = get_debug_logger()
         self.video = video
 
         if not DoviTool:
@@ -74,13 +73,12 @@ class DVFixup:
             dovi.inject_rpu(raw_hevc, rpu, fixed_hevc, status="Re-injecting DV RPU with proper signaling...")
         except Exception as e:
             self.log.warning(f"DV fixup failed ({e}); muxing source as-is.")
-            if self.debug_logger:
-                self.debug_logger.log(
-                    level="WARNING",
-                    operation="dv_fixup",
-                    message="DV fixup failed; falling back to source",
-                    context={"error": str(e), "source": str(source)},
-                )
+            log_event(
+                "dv_fixup",
+                level="WARNING",
+                message="DV fixup failed; falling back to source",
+                context={"error": str(e), "source": str(source)},
+            )
             for leftover in (raw_hevc, rpu, fixed_hevc):
                 leftover.unlink(missing_ok=True)
             return source
@@ -89,14 +87,13 @@ class DVFixup:
             leftover.unlink(missing_ok=True)
 
         self.log.info("✓ DV signaling restored")
-        if self.debug_logger:
-            self.debug_logger.log(
-                level="INFO",
-                operation="dv_fixup",
-                message="DV fixup complete",
-                context={"source": str(source), "output": str(fixed_hevc)},
-                success=True,
-            )
+        log_event(
+            "dv_fixup",
+            level="INFO",
+            message="DV fixup complete",
+            context={"source": str(source), "output": str(fixed_hevc)},
+            success=True,
+        )
         return fixed_hevc
 
 

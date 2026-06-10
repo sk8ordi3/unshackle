@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import time
 from functools import partial
 from pathlib import Path
 from typing import Callable, Iterator, Optional, Sequence, Union
@@ -22,7 +23,7 @@ from unshackle.core.tracks.chapters import Chapter, Chapters
 from unshackle.core.tracks.subtitle import Subtitle
 from unshackle.core.tracks.track import Track
 from unshackle.core.tracks.video import Video
-from unshackle.core.utilities import get_debug_logger, is_close_match, sanitize_filename
+from unshackle.core.utilities import is_close_match, log_event, sanitize_filename
 from unshackle.core.utils.collections import as_list, flatten
 
 
@@ -662,69 +663,83 @@ class Tracks:
         if not output_path:
             raise ValueError("No tracks provided, at least one track must be provided.")
 
-        debug_logger = get_debug_logger()
-        if debug_logger:
-            debug_logger.log(
-                level="DEBUG",
-                operation="mux_start",
-                message="Starting mkvmerge muxing",
-                context={
-                    "title": title,
-                    "output_path": str(output_path),
-                    "video_count": len(self.videos),
-                    "audio_count": len(self.audio),
-                    "subtitle_count": len(self.subtitles),
-                    "attachment_count": len(self.attachments),
-                    "has_chapters": bool(self.chapters),
-                    "video_tracks": [
-                        {"id": v.id, "codec": getattr(v, "codec", None), "language": str(v.language)}
-                        for v in self.videos
-                    ],
-                    "audio_tracks": [
-                        {"id": a.id, "codec": getattr(a, "codec", None), "language": str(a.language)}
-                        for a in self.audio
-                    ],
-                    "subtitle_tracks": [
-                        {"id": s.id, "codec": getattr(s, "codec", None), "language": str(s.language)}
-                        for s in self.subtitles
-                    ],
-                },
-            )
+        full_command = [*cl, "--output", str(output_path), "--gui-mode"]
+
+        log_event(
+            "mux_start",
+            level="INFO",
+            message=(f"Muxing {len(self.videos)}V/{len(self.audio)}A/{len(self.subtitles)}S " f"-> {output_path.name}"),
+            context={
+                "title": title,
+                "output_path": str(output_path),
+                "muxer": str(binaries.MKVToolNix),
+                "command": full_command,
+                "video_count": len(self.videos),
+                "audio_count": len(self.audio),
+                "subtitle_count": len(self.subtitles),
+                "attachment_count": len(self.attachments),
+                "has_chapters": bool(self.chapters),
+                "video_tracks": [
+                    {"id": v.id, "codec": getattr(v, "codec", None), "language": str(v.language)} for v in self.videos
+                ],
+                "audio_tracks": [
+                    {"id": a.id, "codec": getattr(a, "codec", None), "language": str(a.language)} for a in self.audio
+                ],
+                "subtitle_tracks": [
+                    {"id": s.id, "codec": getattr(s, "codec", None), "language": str(s.language)}
+                    for s in self.subtitles
+                ],
+            },
+        )
 
         # let potential failures go to caller, caller should handle
         try:
             errors = []
-            p = subprocess.Popen([*cl, "--output", str(output_path), "--gui-mode"], text=True, stdout=subprocess.PIPE)
+            warnings = []
+            mux_start_time = time.monotonic()
+            p = subprocess.Popen(full_command, text=True, stdout=subprocess.PIPE)
             for line in iter(p.stdout.readline, ""):
                 if line.startswith("#GUI#error") or line.startswith("#GUI#warning"):
                     errors.append(line)
+                    if line.startswith("#GUI#warning"):
+                        warnings.append(line.strip())
                 if "progress" in line:
                     progress(total=100, completed=int(line.strip()[14:-1]))
 
             returncode = p.wait()
+            mux_duration_ms = round((time.monotonic() - mux_start_time) * 1000, 1)
+            output_size = output_path.stat().st_size if output_path and output_path.exists() else 0
 
-            if debug_logger:
-                if returncode != 0 or errors:
-                    debug_logger.log(
-                        level="ERROR",
-                        operation="mux_failed",
-                        message=f"mkvmerge exited with code {returncode}",
-                        context={
-                            "returncode": returncode,
-                            "output_path": str(output_path),
-                            "errors": errors,
-                        },
-                    )
-                else:
-                    debug_logger.log(
-                        level="DEBUG",
-                        operation="mux_complete",
-                        message="mkvmerge muxing completed successfully",
-                        context={
-                            "output_path": str(output_path),
-                            "output_exists": output_path.exists() if output_path else False,
-                        },
-                    )
+            if returncode != 0 or errors:
+                log_event(
+                    "mux_failed",
+                    level="ERROR",
+                    message=f"mkvmerge exited with code {returncode}",
+                    context={
+                        "returncode": returncode,
+                        "output_path": str(output_path),
+                        "errors": errors,
+                        "warnings": warnings,
+                        "duration_ms": mux_duration_ms,
+                    },
+                )
+            else:
+                log_event(
+                    "mux_complete",
+                    level="INFO",
+                    message=(
+                        f"Muxed {output_path.name} ({output_size} bytes) in {mux_duration_ms}ms"
+                        + (f" with {len(warnings)} warning(s)" if warnings else "")
+                    ),
+                    context={
+                        "output_path": str(output_path),
+                        "output_exists": output_path.exists() if output_path else False,
+                        "output_size": output_size,
+                        "duration_ms": mux_duration_ms,
+                        "returncode": returncode,
+                        "warnings": warnings,
+                    },
+                )
 
             return output_path, returncode, errors
         finally:

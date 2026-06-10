@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Optional, Union
@@ -33,7 +34,9 @@ from unshackle.core.drm import DRM_T, ClearKey, MonaLisa, PlayReady, Widevine
 from unshackle.core.events import events
 from unshackle.core.session import RnetResponse, RnetSession
 from unshackle.core.tracks import Audio, Subtitle, Tracks, Video
-from unshackle.core.utilities import get_debug_logger, get_extension, is_close_match, try_ensure_utf8
+from unshackle.core.utilities import get_extension, is_close_match, log_event, try_ensure_utf8
+from unshackle.core.utils.redact import safe_display_url
+from unshackle.core.utils.subprocess import log_tool_run
 
 
 class HLS:
@@ -85,6 +88,13 @@ class HLS:
             raise TypeError(f"Expected response to be a requests.Response or rnet.Response, not {type(res)}")
 
         master = m3u8.loads(content, uri=url)
+
+        log_event(
+            "manifest_hls_fetch",
+            level="DEBUG",
+            message=f"Fetched HLS manifest ({len(content)} bytes)",
+            context={"url": safe_display_url(url), "size": len(content)},
+        )
 
         return cls(master, session, url=url, raw_text=content)
 
@@ -313,6 +323,22 @@ class HLS:
 
         if self.url:
             tracks.manifest_url = self.url
+
+        log_event(
+            "manifest_hls_parse",
+            level="INFO",
+            message=(
+                f"Parsed HLS manifest: {len(tracks.videos)} video, "
+                f"{len(tracks.audio)} audio, {len(tracks.subtitles)} subtitle track(s)"
+            ),
+            context={
+                "videos": len(tracks.videos),
+                "audio": len(tracks.audio),
+                "subtitles": len(tracks.subtitles),
+                "ranges": sorted({str(v.range) for v in tracks.videos}),
+                "vcodecs": sorted({str(v.codec) for v in tracks.videos}),
+            },
+        )
         return tracks
 
     @staticmethod
@@ -656,21 +682,19 @@ class HLS:
             session=session,
         )
 
-        debug_logger = get_debug_logger()
-        if debug_logger:
-            debug_logger.log(
-                level="DEBUG",
-                operation="manifest_hls_download_start",
-                message="Starting HLS manifest download",
-                context={
-                    "track_id": getattr(track, "id", None),
-                    "track_type": track.__class__.__name__,
-                    "total_segments": total_segments,
-                    "has_drm": bool(session_drm),
-                    "drm_type": session_drm.__class__.__name__ if session_drm else None,
-                    "save_path": str(save_path),
-                },
-            )
+        log_event(
+            "manifest_hls_download_start",
+            level="DEBUG",
+            message="Starting HLS manifest download",
+            context={
+                "track_id": getattr(track, "id", None),
+                "track_type": track.__class__.__name__,
+                "total_segments": total_segments,
+                "has_drm": bool(session_drm),
+                "drm_type": session_drm.__class__.__name__ if session_drm else None,
+                "save_path": str(save_path),
+            },
+        )
 
         for status_update in downloader(**downloader_args):
             file_downloaded = status_update.get("file_downloaded")
@@ -939,39 +963,37 @@ class HLS:
         # finally merge all the discontinuity save files together to the final path
         segments_to_merge = find_segments_recursively(save_dir)
 
-        if debug_logger:
-            debug_logger.log(
-                level="DEBUG",
-                operation="manifest_hls_download_complete",
-                message="HLS download complete, preparing to merge",
+        log_event(
+            "manifest_hls_download_complete",
+            level="DEBUG",
+            message="HLS download complete, preparing to merge",
+            context={
+                "track_id": getattr(track, "id", None),
+                "track_type": track.__class__.__name__,
+                "save_dir": str(save_dir),
+                "save_dir_exists": save_dir.exists(),
+                "segments_found": len(segments_to_merge),
+                "segment_files": [f.name for f in segments_to_merge[:10]],  # Limit to first 10
+                "downloader": "requests",
+            },
+        )
+
+        if not segments_to_merge:
+            error_msg = f"No segment files found in output directory: {save_dir}"
+            all_contents = list(save_dir.iterdir()) if save_dir.exists() else []
+            log_event(
+                "manifest_hls_download_no_segments",
+                level="ERROR",
+                message=error_msg,
                 context={
                     "track_id": getattr(track, "id", None),
                     "track_type": track.__class__.__name__,
                     "save_dir": str(save_dir),
                     "save_dir_exists": save_dir.exists(),
-                    "segments_found": len(segments_to_merge),
-                    "segment_files": [f.name for f in segments_to_merge[:10]],  # Limit to first 10
+                    "directory_contents": [str(p) for p in all_contents],
                     "downloader": "requests",
                 },
             )
-
-        if not segments_to_merge:
-            error_msg = f"No segment files found in output directory: {save_dir}"
-            if debug_logger:
-                all_contents = list(save_dir.iterdir()) if save_dir.exists() else []
-                debug_logger.log(
-                    level="ERROR",
-                    operation="manifest_hls_download_no_segments",
-                    message=error_msg,
-                    context={
-                        "track_id": getattr(track, "id", None),
-                        "track_type": track.__class__.__name__,
-                        "save_dir": str(save_dir),
-                        "save_dir_exists": save_dir.exists(),
-                        "directory_contents": [str(p) for p in all_contents],
-                        "downloader": "requests",
-                    },
-                )
             raise FileNotFoundError(error_msg)
 
         if len(segments_to_merge) == 1:
@@ -1039,6 +1061,7 @@ class HLS:
                 demuxer_file = save_path.parent / f"ffmpeg_concat_demuxer_{save_path.stem}.txt"
                 demuxer_file.write_text("\n".join([f"file '{segment.absolute()}'" for segment in segments]))
 
+                concat_start = time.monotonic()
                 subprocess.check_call(
                     [
                         binaries.FFMPEG,
@@ -1061,6 +1084,14 @@ class HLS:
                 )
                 demuxer_file.unlink(missing_ok=True)
                 cleanup_segments_and_dirs()
+                log_tool_run(
+                    "ffmpeg concat segments",
+                    "ffmpeg",
+                    0,
+                    duration_ms=round((time.monotonic() - concat_start) * 1000, 1),
+                    segments=len(segments),
+                    output_size=save_path.stat().st_size if save_path.exists() else 0,
+                )
                 return save_path.stat().st_size
 
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
