@@ -254,16 +254,19 @@ class QualityList(click.ParamType):
     name = "quality_list"
 
     def convert(
-        self, value: Union[str, list[str]], param: Optional[click.Parameter] = None, ctx: Optional[click.Context] = None
+        self,
+        value: Union[str, int, list[Union[str, int]]],
+        param: Optional[click.Parameter] = None,
+        ctx: Optional[click.Context] = None,
     ) -> list[int]:
         if not value:
             return []
         if not isinstance(value, list):
-            value = value.split(",")
+            value = str(value).split(",")
         resolutions = []
         for resolution in value:
             try:
-                resolutions.append(int(resolution.lower().rstrip("p")))
+                resolutions.append(int(str(resolution).lower().rstrip("p")))
             except TypeError:
                 self.fail(
                     f"Expected string for int() conversion, got {resolution!r} of type {type(resolution).__name__}",
@@ -370,9 +373,13 @@ class SlowDelayRange(click.ParamType):
 
     name = "delay_range"
 
-    def convert(self, value: Any, param: Optional[click.Parameter], ctx: Optional[click.Context]) -> tuple[int, int]:
+    def convert(
+        self, value: Any, param: Optional[click.Parameter], ctx: Optional[click.Context]
+    ) -> Optional[tuple[int, int]]:
         if isinstance(value, tuple):
             return value
+        if isinstance(value, bool):
+            return (60, 120) if value else None
 
         match = re.match(r"^(\d+)-(\d+)$", str(value))
         if not match:

@@ -292,6 +292,14 @@ def _perform_download(
         "no_cache": params.get("no_cache", False),
         "reset_cache": params.get("reset_cache", False),
     }
+    # Hand-built context: record parameter sources so service dl overrides
+    # apply to defaults but never clobber client-sent values.
+    from click.core import ParameterSource
+
+    for param_name in ctx.params:
+        ctx.set_parameter_source(
+            param_name, ParameterSource.COMMANDLINE if param_name in params else ParameterSource.DEFAULT
+        )
 
     dl_instance = dl(
         ctx=ctx,

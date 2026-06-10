@@ -32,8 +32,9 @@ There is no `downloader:` config key to set anymore. Setting one to a legacy val
 Pre-define default options and switches of the `dl` command.
 The values will be ignored if explicitly set in the CLI call.
 
-The Key must be the same value Python click would resolve it to as an argument.
-E.g., `@click.option("-r", "--range", "range_", type=...` actually resolves as `range_` variable.
+The Key is the option name with dashes as underscores (`--v-lang` -> `v_lang`). `range` and `list`
+work as-is; their internal Python names (`range_`, `list_`, suffixed to avoid the builtins) are
+also accepted.
 
 For example to set the default primary language to download to German,
 
@@ -88,7 +89,7 @@ to a CLI option on the `dl` command. CLI arguments always take priority over con
 | `abitrate_range` | str | none | Audio bitrate window in kbps, format `MIN-MAX` |
 | `real_video_bitrate` | bool | `false` | Probe actual media size to compute true video bitrates, overriding the manifest's declared value (`-rvb`). See [Real bitrate probing](#real-bitrate-probing) |
 | `real_audio_bitrate` | bool | `false` | Same as above for audio tracks (`-rab`). Slower than video (more renditions) |
-| `range_` | str or list | `SDR` | Color range(s): `SDR`, `HDR10`, `HDR10+`, `HLG`, `DV`, `HYBRID` |
+| `range` (or `range_`) | str or list | `SDR` | Color range(s): `SDR`, `HDR10`, `HDR10+`, `HLG`, `DV`, `HYBRID` |
 | `channels` | float | any | Audio channels (e.g., `5.1`, `7.1`) |
 | `worst` | bool | `false` | Select the lowest bitrate track within the specified quality. Requires `quality` |
 | `best_available` | bool | `false` | Continue if requested quality is unavailable |
@@ -186,18 +187,21 @@ How it works:
 Per-track before→after values are logged at debug level (run with `-d`); the
 corrected values always appear in the Available Tracks panel.
 
-You can also set per-service `dl` overrides (see [Service Integration & Authentication Configuration](SERVICE_CONFIG.md)):
+You can also set per-service `dl` overrides under the `services` section (see
+[Service Integration & Authentication Configuration](SERVICE_CONFIG.md)). Per-service values beat the
+global `dl:` section; explicit CLI arguments beat both:
 
 ```yaml
 dl:
   lang: en
   downloads: 4
   workers: 16
+
+services:
   EXAMPLE:
-    bitrate: CVBR
-  EXAMPLE2:
-    worst: true
-    quality: 1080
+    dl:
+      v_lang: [en]
+      quality: 1080
 ```
 
 ---

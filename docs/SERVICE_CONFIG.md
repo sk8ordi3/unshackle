@@ -30,7 +30,18 @@ service tag in the `services` section. Supported override keys include: `dl`, `s
 `headers`, `proxy_map`, `title_map`, and more.
 
 Overrides are merged with global config (not replaced) -- only specified keys are overridden, others
-use global defaults. CLI arguments always take priority over service-specific config.
+use global defaults.
+
+Any `dl` command option can be overridden per service. Use the option name with dashes as underscores
+(`--v-lang` -> `v_lang`). `range` and `list` work as-is; their internal Python names (`range_`,
+`list_`, suffixed to avoid the builtins) are also accepted.
+
+Precedence (highest first):
+
+1. Explicit CLI arguments / environment variables (e.g. `--v-lang en`)
+2. Per-service config (`services.<TAG>.dl`)
+3. Global `dl:` config
+4. Built-in option defaults
 
 For example,
 

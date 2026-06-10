@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from unshackle.core.tracks.subtitle import Subtitle
-from unshackle.core.utils.click_types import SubtitleCodecChoice
+from unshackle.core.utils.click_types import QUALITY_LIST, SLOW_DELAY_RANGE, SubtitleCodecChoice
 
 choice = SubtitleCodecChoice(Subtitle.Codec)
 
@@ -31,3 +31,29 @@ def test_codecs_still_map(value, expected):
 
 def test_empty_is_none():
     assert choice.convert(None) is None
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (1080, [1080]),
+        ([720, 1080], [1080, 720]),
+        ("1080p", [1080]),
+        ("720,1080", [1080, 720]),
+    ],
+)
+def test_quality_list_accepts_yaml_native_values(value, expected):
+    assert QUALITY_LIST.convert(value) == expected
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (True, (60, 120)),
+        (False, None),
+        ("20-40", (20, 40)),
+        ((25, 30), (25, 30)),
+    ],
+)
+def test_slow_delay_range_accepts_bool(value, expected):
+    assert SLOW_DELAY_RANGE.convert(value, None, None) == expected

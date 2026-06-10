@@ -414,6 +414,13 @@ audio:
   # Atmos still trumps codec priority. Valid names: AAC, AC3, EC3, AC4, OPUS, OGG, DTS, ALAC, FLAC.
   # codec_priority: [FLAC, ALAC, AC4, EC3, DTS, AC3, OPUS, AAC, OGG]
 
+# Global defaults for the dl command. Any dl option can be set here.
+# Use the option name with dashes as underscores (--v-lang -> v_lang).
+# range and list work as-is (range_/list_ also accepted).
+#
+# Any of these can also be overridden per service under services.<TAG>.dl
+# (see the services section below). Precedence, highest first:
+#   CLI arguments > services.<TAG>.dl > this dl section > built-in defaults
 dl:
   sub_format: srt
   downloads: 4
@@ -421,6 +428,14 @@ dl:
   lang:
     - en
     - fr
+  v_lang: [en] # --v-lang: video language(s), if different from audio
+  s_lang: [en, de] # --s-lang: subtitle language(s)
+  range: SDR # --range: SDR, HDR10, HDR10+, DV
+  quality: [1080] # --quality: resolution(s), int or list
+  slow: false # --slow: true = random 60-120s delay between titles, or "MIN-MAX" string
+  # Nesting a SERVICE TAG here provides defaults for that service's OWN command
+  # options (e.g. a service-defined --bitrate flag) -- NOT for the dl options
+  # above. To override dl options per service, use services.<TAG>.dl instead.
   EXAMPLE:
     bitrate: CBR
 
@@ -624,12 +639,20 @@ services:
     # Other services or no service specified will still use random selection
 
     # NEW: Configuration overrides (can be combined with profiles and certificates)
-    # Override dl command defaults for this service
+    # Override dl command defaults for this service. ANY dl option works here,
+    # same key naming as the global dl section (v_lang, range_, list_, ...).
+    # These beat the global dl section; explicit CLI arguments beat both.
     dl:
       downloads: 4 # Limit concurrent track downloads (global default: 6)
       workers: 8 # Reduce workers per track (global default: 16)
       lang: ["en", "es-419"] # Different language priority for this service
+      v_lang: [en] # Video language differs from audio on this service
+      s_lang: [all] # Grab every subtitle language here
+      range: HDR10 # Prefer HDR10 on this service (CLI -r still wins)
+      quality: 720 # This service rate-limits 1080p; int or list both work
       sub_format: srt # Force SRT subtitle format
+      slow: true # Pace title downloads (60-120s); or "20-40" for a custom range
+      repack: false # Even if the global dl section sets repack: true
 
     # Override subtitle processing for this service
     subtitle:
@@ -671,7 +694,8 @@ services:
   # - Only specified keys are overridden, others use global defaults
   # - Reserved keys (profiles, api_key, certificate, etc.) are NOT treated as overrides
   # - Any dict-type config option can be overridden (dl, subtitle, muxing, headers, etc.)
-  # - CLI arguments always take priority over service-specific config
+  # - Any dl option can be overridden; dashes become underscores (--v-lang -> v_lang)
+  # - Precedence: CLI arguments > service dl override > global dl section > built-in defaults
 
 # External proxy provider services
 proxy_providers:

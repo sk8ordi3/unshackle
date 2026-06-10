@@ -25,6 +25,7 @@ from uuid import UUID
 
 import click
 import yaml
+from click.core import ParameterSource
 from langcodes import Language
 from pymediainfo import MediaInfo
 from rich.console import Group
@@ -78,6 +79,42 @@ class SkippedSubtitle(TypedDict):
     id: str
     language: str
     title: str
+
+
+# Config keys accepted as natural names for params whose Python name dodges a builtin.
+DL_OPTION_ALIASES = {"range": "range_", "list": "list_"}
+
+
+def normalize_dl_config(dl_config: dict[str, Any]) -> dict[str, Any]:
+    """Map aliased config keys (e.g. ``range``) to their Click parameter names (``range_``)."""
+    return {DL_OPTION_ALIASES.get(key, key): value for key, value in dl_config.items()}
+
+
+def apply_service_dl_overrides(ctx: click.Context, service_dl_config: dict[str, Any], log: logging.Logger) -> None:
+    """Apply ``services.<TAG>.dl`` config onto ``ctx.params``. Explicit CLI/env values win;
+    defaults and global ``dl:`` default_map values are replaced."""
+    params_by_name = {param.name: param for param in ctx.command.params if param.name}
+    for name, value in normalize_dl_config(service_dl_config).items():
+        param = params_by_name.get(name)
+        if param is None:
+            log.warning(f"Ignoring unknown dl option '{name}' in service config")
+            continue
+        if name not in ctx.params:
+            log.debug(f"Skipping service dl override '{name}': not present in this context")
+            continue
+        if value is None:
+            continue
+        source = ctx.get_parameter_source(name)
+        if source not in (ParameterSource.DEFAULT, ParameterSource.DEFAULT_MAP):
+            continue
+        try:
+            ctx.params[name] = param.type_cast_value(ctx, value)
+            log.debug(f"Applied service dl override '{name}': {ctx.params[name]}")
+        except Exception as e:
+            log.warning(
+                f"Failed to apply service dl override '{name}'={value!r}: {e}. "
+                f"Check that the value is valid for this parameter."
+            )
 
 
 def download_tracks_in_passes(
@@ -326,7 +363,9 @@ class dl:
     @click.command(
         short_help="Download, Decrypt, and Mux tracks for titles from a Service.",
         cls=Services,
-        context_settings=dict(**context_settings, default_map=config.dl, token_normalize_func=Services.get_tag),
+        context_settings=dict(
+            **context_settings, default_map=normalize_dl_config(config.dl), token_normalize_func=Services.get_tag
+        ),
     )
     @click.option(
         "-p", "--profile", type=str, default=None, help="Profile to use for Credentials and Cookies (if available)."
@@ -687,37 +726,19 @@ class dl:
 
         self.service = Services.get_tag(ctx.invoked_subcommand)
         self.vault_service = Services.get_vault_tag(self.service)
-        service_dl_config = config.services.get(self.service, {}).get("dl", {})
-        if service_dl_config:
-            param_types = {param.name: param.type for param in ctx.command.params if param.name}
+        apply_service_dl_overrides(ctx, config.services.get(self.service, {}).get("dl", {}), self.log)
 
-            for param_name, service_value in service_dl_config.items():
-                if param_name not in ctx.params:
-                    continue
-
-                current_value = ctx.params[param_name]
-                global_default = config.dl.get(param_name)
-                param_type = param_types.get(param_name)
-
-                try:
-                    if param_type and global_default is not None:
-                        global_default = param_type.convert(global_default, None, ctx)
-                except Exception as e:
-                    self.log.debug(f"Failed to convert global default for '{param_name}': {e}")
-
-                if current_value == global_default or (current_value is None and global_default is None):
-                    try:
-                        converted_value = service_value
-                        if param_type and service_value is not None:
-                            converted_value = param_type.convert(service_value, None, ctx)
-
-                        ctx.params[param_name] = converted_value
-                        self.log.debug(f"Applied service-specific '{param_name}' override: {converted_value}")
-                    except Exception as e:
-                        self.log.warning(
-                            f"Failed to apply service-specific '{param_name}' override: {e}. "
-                            f"Check that the value '{service_value}' is valid for this parameter."
-                        )
+        # Refresh locals Click bound before the overrides ran.
+        no_proxy = ctx.params.get("no_proxy", no_proxy)
+        profile = ctx.params.get("profile", profile)
+        proxy = ctx.params.get("proxy", proxy)
+        repack = ctx.params.get("repack", repack)
+        tag = ctx.params.get("tag", tag)
+        tmdb_id = ctx.params.get("tmdb_id", tmdb_id)
+        imdb_id = ctx.params.get("imdb_id", imdb_id)
+        animeapi_id = ctx.params.get("animeapi_id", animeapi_id)
+        enrich = ctx.params.get("enrich", enrich)
+        output_dir = ctx.params.get("output_dir", output_dir)
 
         self.profile = profile
         self.proxy_requested = bool(proxy)
