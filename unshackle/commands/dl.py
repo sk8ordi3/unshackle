@@ -2328,6 +2328,11 @@ class dl:
                             max_workers=workers,
                             progress=tracks_progress_callables[i],
                         )
+                        # DRM-free and ClearKey tracks never reach prepare_drm, so export here.
+                        # drm=None on purpose: licensed tracks already recorded their DRM/keys
+                        # in prepare_drm, and write_export merges via setdefault.
+                        if export_path:
+                            self.write_export(export_path, title, track)
 
                     def on_subtitle_skipped(track: Subtitle) -> None:
                         lang = str(track.language)
@@ -2933,12 +2938,14 @@ class dl:
             meta.update(type="movie", name=str(title))
         return meta
 
-    def write_export(self, export: Path, title: Title_T, track: AnyTrack, drm: Any) -> None:
+    def write_export(self, export: Path, title: Title_T, track: AnyTrack, drm: Any = None) -> None:
         """Write a shareable v2 export usable by ``unshackle import``.
 
         Carries no session/cookies/dl-flags. Region (country code) is stored only when the
         export used ``--proxy``, as an import geofence. Each track records only the licensed
-        DRM system; content keys live once under the track's ``keys``.
+        DRM system; content keys live once under the track's ``keys``. ``drm`` may be None
+        (DRM-free track) or a DRM system without ``to_dict``/``content_keys`` (e.g. ClearKey) —
+        the track, manifest, chapter and attachment info is still exported.
         """
         with self.EXPORT_LOCK:
             doc: dict[str, Any] = {}
@@ -2971,11 +2978,14 @@ class dl:
                     tracks_map[str(t.id)] = t.to_dict()
 
             track_data = tracks_map.setdefault(str(track.id), track.to_dict())
-            if hasattr(drm, "to_dict"):
-                track_data["drm"] = [drm.to_dict()]
-            keys = track_data.setdefault("keys", {})
-            for kid, key in drm.content_keys.items():
-                keys[kid.hex] = key
+            if drm is not None:
+                if hasattr(drm, "to_dict"):
+                    track_data["drm"] = [drm.to_dict()]
+                content_keys = getattr(drm, "content_keys", None) or {}
+                if content_keys:
+                    keys = track_data.setdefault("keys", {})
+                    for kid, key in content_keys.items():
+                        keys[kid.hex] = key
 
             if "chapters" not in tinfo:
                 tinfo["chapters"] = [
@@ -3057,6 +3067,8 @@ class dl:
                         cek_tree.add(f"[text2]{kid.hex}:{key}")
                 if not any(isinstance(x, Tree) and x.label == cek_tree.label for x in table.columns[0].cells):
                     table.add_row(cek_tree)
+            if export:
+                self.write_export(export, title, track, drm)
             return
 
         track_quality = None
@@ -3463,6 +3475,9 @@ class dl:
                 if cek_tree.children and not pre_existing_tree:
                     table.add_row()
                     table.add_row(cek_tree)
+
+                if export:
+                    self.write_export(export, title, track, drm)
 
     @staticmethod
     def get_cookie_path(service: str, profile: Optional[str]) -> Optional[Path]:
