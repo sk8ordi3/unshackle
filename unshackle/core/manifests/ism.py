@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import html
+import struct
 import urllib.parse
 from functools import partial
 from pathlib import Path
@@ -18,6 +19,7 @@ from requests import Session
 from unshackle.core.constants import DOWNLOAD_CANCELLED, DOWNLOAD_LICENCE_ONLY, AnyTrack
 from unshackle.core.drm import DRM_T, PlayReady, Widevine
 from unshackle.core.events import events
+from unshackle.core.manifests.ism_init import build_init_segment, read_per_sample_iv_size, read_track_id
 from unshackle.core.session import RnetSession
 from unshackle.core.tracks import Audio, Subtitle, Track, Tracks, Video
 from unshackle.core.utilities import log_event, try_ensure_utf8
@@ -84,6 +86,104 @@ class ISM:
                     continue
                 drm.append(PlayReady(pssh=pr_pssh, pssh_b64=data))
         return drm
+
+    @staticmethod
+    def _init_segment(
+        track: AnyTrack, session_drm: Optional[DRM_T], first_segment: Optional[bytes] = None
+    ) -> Optional[bytes]:
+        # Smooth fragments are moof+mdat only; rebuild the ftyp+moov init box from
+        # the manifest CodecPrivateData (and KID, when encrypted) so the merged file
+        # is a valid MP4 that shaka/mp4decrypt can parse.
+        ism = track.data.get("ism") if isinstance(getattr(track, "data", None), dict) else None
+        if not ism:
+            return None
+        stream_index = ism.get("stream_index")
+        quality_level = ism.get("quality_level")
+        manifest = ism.get("manifest")
+        if stream_index is None or quality_level is None:
+            return None
+        # CodecPrivateData may legitimately be empty (AAC config is synthesized,
+        # EC-3 decoders sync from the frames); the builder handles each case.
+        cpd = quality_level.get("CodecPrivateData") or ""
+        fourcc = quality_level.get("FourCC") or ""
+
+        root_timescale = manifest.get("TimeScale") if manifest is not None else None
+        timescale = int(stream_index.get("TimeScale") or root_timescale or 10000000)
+        duration = int((manifest.get("Duration") if manifest is not None else 0) or 0)
+        # mdhd needs a 3-letter ISO-639-2 code; manifests often carry 2-letter tags.
+        lang_attr = (stream_index.get("Language") or "").strip()
+        language = "und"
+        if lang_attr and tag_is_valid(lang_attr):
+            try:
+                language = Language.get(lang_attr).to_alpha3()
+            except LookupError:
+                language = "und"
+
+        kid: Optional[bytes] = None
+        if session_drm is not None:
+            kid_uuid = next(iter(getattr(session_drm, "kids", None) or []), None)
+            if kid_uuid is not None:
+                kid = bytes.fromhex(kid_uuid.hex)
+
+        # Match the moov track_ID to the fragment's tfhd, else the muxer drops samples.
+        track_id = (read_track_id(first_segment) if first_segment else None) or 1
+        # NALUnitLengthField: bytes per NAL length prefix, default 4.
+        nal_length_size = int(quality_level.get("NALUnitLengthField") or stream_index.get("NALUnitLengthField") or 4)
+        # Per-sample IV size derived from the fragment senc/saiz (PIFF default 8).
+        iv_size = (read_per_sample_iv_size(first_segment) if first_segment and kid else None) or 8
+
+        try:
+            if isinstance(track, Subtitle):
+                if track.codec != Subtitle.Codec.fTTML:
+                    return None  # plain-text subtitle formats concatenate fine
+                return build_init_segment(
+                    stream_type="text",
+                    fourcc="TTML",
+                    codec_private_data="",
+                    timescale=timescale,
+                    duration=duration,
+                    language=language,
+                    track_id=track_id,
+                )
+            if isinstance(track, Video):
+                return build_init_segment(
+                    stream_type="video",
+                    fourcc=fourcc,
+                    codec_private_data=cpd,
+                    timescale=timescale,
+                    duration=duration,
+                    language=language,
+                    width=int(quality_level.get("MaxWidth") or stream_index.get("MaxWidth") or 0),
+                    height=int(quality_level.get("MaxHeight") or stream_index.get("MaxHeight") or 0),
+                    track_id=track_id,
+                    nal_length_size=nal_length_size,
+                    kid=kid,
+                    iv_size=iv_size,
+                )
+            return build_init_segment(
+                stream_type="audio",
+                fourcc=fourcc,
+                codec_private_data=cpd,
+                timescale=timescale,
+                duration=duration,
+                language=language,
+                channels=int(quality_level.get("Channels") or 2),
+                bits_per_sample=int(quality_level.get("BitsPerSample") or 16),
+                sampling_rate=int(quality_level.get("SamplingRate") or 48000),
+                track_id=track_id,
+                kid=kid,
+                iv_size=iv_size,
+            )
+        except (NotImplementedError, ValueError, struct.error) as e:
+            # Unsupported codec, malformed CodecPrivateData or out-of-range field —
+            # fall back to raw concatenation rather than aborting the download.
+            log_event(
+                "manifest_ism_init_unsupported",
+                level="WARNING",
+                message=f"Could not synthesize ISM init segment ({fourcc}): {e}",
+                context={"track_id": getattr(track, "id", None), "fourcc": fourcc},
+            )
+            return None
 
     def to_tracks(self, language: Optional[Union[str, Language]] = None) -> Tracks:
         tracks = Tracks()
@@ -383,8 +483,13 @@ class ISM:
             raise FileNotFoundError(error_msg)
 
         with open(save_path, "wb") as f:
-            for segment_file in segments_to_merge:
-                segment_data = segment_file.read_bytes()
+            first_segment = segments_to_merge[0].read_bytes() if segments_to_merge else None
+            init_segment = ISM._init_segment(track, session_drm, first_segment)
+            if init_segment:
+                f.write(init_segment)
+            for index, segment_file in enumerate(segments_to_merge):
+                # First segment was already read for the init synthesis — reuse it.
+                segment_data = first_segment if index == 0 and first_segment else segment_file.read_bytes()
                 if (
                     not session_drm
                     and isinstance(track, Subtitle)
