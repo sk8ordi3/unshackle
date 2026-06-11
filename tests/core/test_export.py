@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID
 
 from unshackle.commands.dl import dl
 from unshackle.core.drm.clearkey import ClearKey
+from unshackle.core.import_service import ImportService
 from unshackle.core.titles import Movie
-from unshackle.core.tracks import Audio, Subtitle, Video
+from unshackle.core.tracks import Audio, Chapter, Subtitle, Video
 
 KID = UUID(hex="00000000000000000000000000000001")
 
@@ -124,6 +126,40 @@ def test_post_download_write_keeps_licensed_keys(tmp_path: Path) -> None:
     track = read_export(export)["titles"]["movie-1"]["tracks"]["v1"]
     assert track["drm"] == [{"system": "Widevine", "pssh_b64": "AAAA"}]
     assert track["keys"] == {KID.hex: "aa" * 16}
+
+
+def test_drm_free_export_roundtrips_through_import_service(tmp_path: Path) -> None:
+    """A DRM-free export must rebuild via ImportService: titles, tracks (no DRM),
+    empty key pool (resolve_server_keys no-op) and chapters."""
+    export = tmp_path / "export.json"
+    title = make_title()
+    title.tracks.chapters.add(Chapter("00:00:10.000", "Intro"))
+    runner = make_dl()
+    for track in [*title.tracks.videos, *title.tracks.audio, *title.tracks.subtitles]:
+        runner.write_export(export, title, track)
+
+    # ImportService only touches ctx.parent.params (proxy flags) when building its session.
+    ctx = SimpleNamespace(parent=None, params={})
+    svc = ImportService(ctx, "EXAMPLE", "movie-1", str(export))
+
+    titles = list(svc.get_titles())
+    assert len(titles) == 1
+    movie = titles[0]
+    assert isinstance(movie, Movie)
+    assert movie.name == "Example Movie"
+    assert movie.year == 2024
+
+    tracks = svc.get_tracks(movie)
+    assert {t.id for t in tracks} == {"v1", "a1", "s1"}
+    assert all(not t.drm for t in tracks)
+
+    assert svc.key_pool() == {}
+    movie.tracks = tracks
+    svc.resolve_server_keys(movie)
+    assert all(not t.drm for t in movie.tracks)
+
+    # Chapters.add auto-inserts a nameless 00:00:00 baseline chapter; it round-trips too.
+    assert [c.name for c in svc.get_chapters(movie)] == [None, "Intro"]
 
 
 def test_keyless_content_keys_writes_no_keys_entry(tmp_path: Path) -> None:
