@@ -6,7 +6,39 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 This changelog is automatically generated using [git-cliff](https://git-cliff.org).
 
-## [5.1.0] - 2026-05-29
+## [5.2.0] - 2026-06-16
+
+### Features
+
+- *vault*: Add VAULT_TAG to share key vault across services
+- *subtitle*: Data-driven conversion registry + SubtitleEdit 5 support
+- *subtitle*: Support 'original' sub_format to keep source format
+- *api*: Aggregate REST download progress with weighting, track labels and mux stage
+- *logging*: Expand debug-logging coverage, add primitives, redaction & tests
+- *logging*: Add debug_requests flag and aggregate subtitle-conversion logs
+- *drm*: Add native DASH ClearKey (org.w3.clearkey) support
+- *music*: Native music core - shared helpers, album folder template, display cleanup
+
+### Bug Fixes
+
+- *core*: Replace deprecated ast.Num visitor in FPS parser
+- *hls*: Decrypt AES-128 (ClearKey) media-playlist keys + per-segment sequence IV
+- *dl*: Mux hybrid ingredients standalone only when range explicitly requested
+- *dl*: Make a failed subtitle non-fatal under --skip-subtitle-errors
+- *api*: Repair REST API downloads, add /services flags & live progress
+- *dl*: Apply per-service dl config overrides for all options
+- *security*: Sanitize logs, redact secrets, harden XML parsing
+- *dl*: Export DRM-free, ClearKey, MonaLisa and server-CDM tracks
+- *ism*: Rebuild moov init segment for Smooth Streaming decrypt
+- *ism*: Derive video colour range from CodecPrivateData SPS VUI
+- *subtitle*: Drive SubtitleEdit 4.x with legacy /convert syntax
+
+### Changes
+
+- *cli*: Replace deprecated click.MultiCommand with click.Group
+- *dl*: Type the two-pass download helper + pin skipped_subtitles shape
+
+## [5.1.0] - 2026-06-03
 
 ### Features
 
@@ -66,6 +98,8 @@ This changelog is automatically generated using [git-cliff](https://git-cliff.or
 ### Maintenance
 
 - *pre-commit*: Update hook versions in .pre-commit-config.yaml
+- *changelog*: Update version date and add new features and fixes for 5.1.0
+- *changelog*: Update changelog and cleanup readme
 
 ## [5.0.0] - 2026-05-04
 
@@ -685,7 +719,8 @@ This changelog is automatically generated using [git-cliff](https://git-cliff.or
 - Reorganize Planned Features section in README for clarity
 - Improve track selection logic in dl.py
 
-[unreleased]: https://github.com/unshackle-dl/unshackle/compare/5.0.0..HEAD
+[5.2.0]: https://github.com/unshackle-dl/unshackle/compare/5.1.0..5.2.0
+[5.1.0]: https://github.com/unshackle-dl/unshackle/compare/5.0.0..5.1.0
 [5.0.0]: https://github.com/unshackle-dl/unshackle/compare/4.0.0..5.0.0
 [4.0.0]: https://github.com/unshackle-dl/unshackle/compare/3.0.0..4.0.0
 [3.0.0]: https://github.com/unshackle-dl/unshackle/compare/2.3.0..3.0.0
