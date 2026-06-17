@@ -48,9 +48,17 @@ from unshackle.core.constants import DOWNLOAD_CANCELLED, DOWNLOAD_LICENCE_ONLY, 
 from unshackle.core.credential import Credential
 from unshackle.core.drm import DRM_T, ClearKeyCENC, MonaLisa, PlayReady, Widevine
 from unshackle.core.events import events
-from unshackle.core.music import (MusicAudioIntegrityError, MusicMetadataResult, MusicPlanner, MusicRenderer,
-                                  file_md5, verify_music_audio, write_music_manifest, write_music_metadata)
-from unshackle.core.proxies import Basic, Gluetun, Hola, NordVPN, SurfsharkVPN, WindscribeVPN
+from unshackle.core.music import (
+    MusicAudioIntegrityError,
+    MusicMetadataResult,
+    MusicPlanner,
+    MusicRenderer,
+    file_md5,
+    verify_music_audio,
+    write_music_manifest,
+    write_music_metadata,
+)
+from unshackle.core.proxies import Basic, ExpressVPN, Gluetun, Hola, NordVPN, SurfsharkVPN, WindscribeVPN
 from unshackle.core.service import Service
 from unshackle.core.services import Services
 from unshackle.core.title_cacher import get_account_hash
@@ -1042,6 +1050,8 @@ class dl:
             with console.status("Loading Proxy Providers...", spinner="dots"):
                 if config.proxy_providers.get("basic"):
                     self.proxy_providers.append(Basic(**config.proxy_providers["basic"]))
+                if config.proxy_providers.get("expressvpn"):
+                    self.proxy_providers.append(ExpressVPN(**config.proxy_providers["expressvpn"]))
                 if config.proxy_providers.get("nordvpn"):
                     self.proxy_providers.append(NordVPN(**config.proxy_providers["nordvpn"]))
                 if config.proxy_providers.get("surfsharkvpn"):
@@ -1061,8 +1071,8 @@ class dl:
                     # requesting proxy from a specific proxy provider
                     requested_provider, proxy = proxy.split(":", maxsplit=1)
                 # Match simple region codes (us, ca, uk1) or provider:region format (nordvpn:ca, windscribe:us)
-                if re.match(r"^[a-z]{2}(?:\d+)?$", proxy, re.IGNORECASE) or re.match(
-                    r"^[a-z]+:[a-z]{2}(?:\d+)?$", proxy, re.IGNORECASE
+                if re.match(r"^[a-z]{2}(?:[-][a-z0-9]+)*(?:\d+)?$", proxy, re.IGNORECASE) or re.match(
+                    r"^[a-z]+:[a-z]{2}(?:[-][a-z0-9]+)*(?:\d+)?$", proxy, re.IGNORECASE
                 ):
                     proxy = proxy.lower()
                     # Preserve the original user query (region code) for service-specific proxy_map overrides.
@@ -1097,7 +1107,13 @@ class dl:
                                 else:
                                     self.log.info(f"Using {proxy_provider.__class__.__name__} Proxy: {proxy}")
                             else:
-                                self.log.info(f"Using {proxy_provider.__class__.__name__} Proxy: {proxy}")
+                                display = None
+                                if hasattr(proxy_provider, "last_connection_display"):
+                                    display = proxy_provider.last_connection_display()
+                                if display:
+                                    self.log.info(f"Using {proxy_provider.__class__.__name__} Proxy {display}")
+                                else:
+                                    self.log.info(f"Using {proxy_provider.__class__.__name__} Proxy: {proxy}")
                         else:
                             for proxy_provider in self.proxy_providers:
                                 proxy_uri = proxy_provider.get_proxy(proxy)
@@ -1113,7 +1129,13 @@ class dl:
                                         else:
                                             self.log.info(f"Using {proxy_provider.__class__.__name__} Proxy: {proxy}")
                                     else:
-                                        self.log.info(f"Using {proxy_provider.__class__.__name__} Proxy: {proxy}")
+                                        display = None
+                                        if hasattr(proxy_provider, "last_connection_display"):
+                                            display = proxy_provider.last_connection_display()
+                                        if display:
+                                            self.log.info(f"Using {proxy_provider.__class__.__name__} Proxy {display}")
+                                        else:
+                                            self.log.info(f"Using {proxy_provider.__class__.__name__} Proxy: {proxy}")
                                     break
                     # Store proxy query info for service-specific overrides
                     ctx.params["proxy_query"] = proxy_query
