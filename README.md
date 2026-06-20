@@ -39,7 +39,7 @@ unshackle --help
 
 External tools on your `PATH` (recommended versions):
 
-- [Python](https://www.python.org/) - 3.10 - 3.12
+- [Python](https://www.python.org/) - 3.11 - 3.14
 - [uv](https://docs.astral.sh/uv/) - ≥ 0.5
 - [FFmpeg](https://ffmpeg.org/) - ≥ 6.0
 - [MKVToolNix](https://mkvtoolnix.download/) - ≥ 80
