@@ -21,14 +21,10 @@ class APIErrorCode(str, Enum):
     # Client errors (4xx)
     INVALID_INPUT = "INVALID_INPUT"  # Missing or malformed request data
     INVALID_SERVICE = "INVALID_SERVICE"  # Unknown service name
-    INVALID_TITLE_ID = "INVALID_TITLE_ID"  # Invalid or malformed title ID
-    INVALID_PROFILE = "INVALID_PROFILE"  # Profile doesn't exist
     INVALID_PROXY = "INVALID_PROXY"  # Invalid proxy specification
-    INVALID_LANGUAGE = "INVALID_LANGUAGE"  # Invalid language code
     INVALID_PARAMETERS = "INVALID_PARAMETERS"  # Invalid download parameters
 
     AUTH_FAILED = "AUTH_FAILED"  # Authentication failure (invalid credentials/cookies)
-    AUTH_REQUIRED = "AUTH_REQUIRED"  # Missing authentication
     FORBIDDEN = "FORBIDDEN"  # Action not allowed
     GEOFENCE = "GEOFENCE"  # Content not available in region
 
@@ -84,13 +80,9 @@ class APIError(Exception):
             # 400 Bad Request
             APIErrorCode.INVALID_INPUT: 400,
             APIErrorCode.INVALID_SERVICE: 400,
-            APIErrorCode.INVALID_TITLE_ID: 400,
-            APIErrorCode.INVALID_PROFILE: 400,
             APIErrorCode.INVALID_PROXY: 400,
-            APIErrorCode.INVALID_LANGUAGE: 400,
             APIErrorCode.INVALID_PARAMETERS: 400,
             # 401 Unauthorized
-            APIErrorCode.AUTH_REQUIRED: 401,
             APIErrorCode.AUTH_FAILED: 401,
             # 403 Forbidden
             APIErrorCode.FORBIDDEN: 403,
