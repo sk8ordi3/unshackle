@@ -1,5 +1,8 @@
+import functools
 import logging
 import re
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import click
 from aiohttp import web
@@ -37,7 +40,24 @@ async def cors_middleware(request: web.Request, handler):
 
 log = logging.getLogger("api")
 
+# Route handler signature: takes the request, returns a response.
+Handler = Callable[[web.Request], Awaitable[web.Response]]
 
+
+def api_handler(handler: Handler) -> Handler:
+    """Wrap a route handler so any raised APIError becomes a structured error response."""
+
+    @functools.wraps(handler)
+    async def wrapper(request: web.Request) -> web.Response:
+        try:
+            return await handler(request)
+        except APIError as e:
+            return build_error_response(e, request.app.get("debug_api", False))
+
+    return wrapper
+
+
+@api_handler
 async def health(request: web.Request) -> web.Response:
     """
     Health check endpoint.
@@ -84,6 +104,7 @@ async def health(request: web.Request) -> web.Response:
     return web.json_response({"status": "ok", "version": __version__, "update_check": update_info})
 
 
+@api_handler
 async def services(request: web.Request) -> web.Response:
     """
     List available services.
@@ -268,6 +289,7 @@ async def services(request: web.Request) -> web.Response:
         return handle_api_exception(e, context={"operation": "list_services"}, debug_mode=debug_mode)
 
 
+@api_handler
 async def search(request: web.Request) -> web.Response:
     """
     Search for titles from a service.
@@ -347,14 +369,13 @@ async def search(request: web.Request) -> web.Response:
 
     try:
         return await search_handler(data, request)
-    except APIError as e:
-        return build_error_response(e, request.app.get("debug_api", False))
     except Exception as e:
         log.exception("Error in search")
         debug_mode = request.app.get("debug_api", False)
         return handle_api_exception(e, context={"operation": "search"}, debug_mode=debug_mode)
 
 
+@api_handler
 async def list_titles(request: web.Request) -> web.Response:
     """
     List titles for a service and title ID.
@@ -474,13 +495,10 @@ async def list_titles(request: web.Request) -> web.Response:
             request.app.get("debug_api", False),
         )
 
-    try:
-        return await list_titles_handler(data, request)
-    except APIError as e:
-        debug_mode = request.app.get("debug_api", False)
-        return build_error_response(e, debug_mode)
+    return await list_titles_handler(data, request)
 
 
+@api_handler
 async def list_tracks(request: web.Request) -> web.Response:
     """
     List tracks for a title, separated by type.
@@ -527,13 +545,10 @@ async def list_tracks(request: web.Request) -> web.Response:
             request.app.get("debug_api", False),
         )
 
-    try:
-        return await list_tracks_handler(data, request)
-    except APIError as e:
-        debug_mode = request.app.get("debug_api", False)
-        return build_error_response(e, debug_mode)
+    return await list_tracks_handler(data, request)
 
 
+@api_handler
 async def download(request: web.Request) -> web.Response:
     """
     Download content based on provided parameters.
@@ -767,13 +782,10 @@ async def download(request: web.Request) -> web.Response:
             request.app.get("debug_api", False),
         )
 
-    try:
-        return await download_handler(data, request)
-    except APIError as e:
-        debug_mode = request.app.get("debug_api", False)
-        return build_error_response(e, debug_mode)
+    return await download_handler(data, request)
 
 
+@api_handler
 async def download_jobs(request: web.Request) -> web.Response:
     """
     List all download jobs with optional filtering and sorting.
@@ -847,13 +859,10 @@ async def download_jobs(request: web.Request) -> web.Response:
         "sort_by": request.query.get("sort_by", "created_time"),
         "sort_order": request.query.get("sort_order", "desc"),
     }
-    try:
-        return await list_download_jobs_handler(query_params, request)
-    except APIError as e:
-        debug_mode = request.app.get("debug_api", False)
-        return build_error_response(e, debug_mode)
+    return await list_download_jobs_handler(query_params, request)
 
 
+@api_handler
 async def download_job_detail(request: web.Request) -> web.Response:
     """
     Get download job details.
@@ -875,13 +884,10 @@ async def download_job_detail(request: web.Request) -> web.Response:
         description: Server error
     """
     job_id = request.match_info["job_id"]
-    try:
-        return await get_download_job_handler(job_id, request)
-    except APIError as e:
-        debug_mode = request.app.get("debug_api", False)
-        return build_error_response(e, debug_mode)
+    return await get_download_job_handler(job_id, request)
 
 
+@api_handler
 async def cancel_download_job(request: web.Request) -> web.Response:
     """
     Cancel download job.
@@ -905,13 +911,10 @@ async def cancel_download_job(request: web.Request) -> web.Response:
         description: Server error
     """
     job_id = request.match_info["job_id"]
-    try:
-        return await cancel_download_job_handler(job_id, request)
-    except APIError as e:
-        debug_mode = request.app.get("debug_api", False)
-        return build_error_response(e, debug_mode)
+    return await cancel_download_job_handler(job_id, request)
 
 
+@api_handler
 async def session_create(request: web.Request) -> web.Response:
     """
     Create a remote-dl session.
@@ -964,8 +967,6 @@ async def session_create(request: web.Request) -> web.Response:
         )
     try:
         return await session_create_handler(data, request)
-    except APIError as e:
-        return build_error_response(e, request.app.get("debug_api", False))
     except Exception as e:
         log.exception("Error in session create")
         return handle_api_exception(
@@ -973,6 +974,7 @@ async def session_create(request: web.Request) -> web.Response:
         )
 
 
+@api_handler
 async def session_titles(request: web.Request) -> web.Response:
     """
     Get titles for an authenticated session.
@@ -994,8 +996,6 @@ async def session_titles(request: web.Request) -> web.Response:
     session_id = request.match_info["session_id"]
     try:
         return await session_titles_handler(session_id, request)
-    except APIError as e:
-        return build_error_response(e, request.app.get("debug_api", False))
     except Exception as e:
         log.exception("Error in session titles")
         return handle_api_exception(
@@ -1003,6 +1003,7 @@ async def session_titles(request: web.Request) -> web.Response:
         )
 
 
+@api_handler
 async def session_tracks(request: web.Request) -> web.Response:
     """
     Get tracks and chapters for a specific title.
@@ -1043,8 +1044,6 @@ async def session_tracks(request: web.Request) -> web.Response:
         )
     try:
         return await session_tracks_handler(data, session_id, request)
-    except APIError as e:
-        return build_error_response(e, request.app.get("debug_api", False))
     except Exception as e:
         log.exception("Error in session tracks")
         return handle_api_exception(
@@ -1052,6 +1051,7 @@ async def session_tracks(request: web.Request) -> web.Response:
         )
 
 
+@api_handler
 async def session_segments(request: web.Request) -> web.Response:
     """
     Resolve segment URLs for selected tracks.
@@ -1094,8 +1094,6 @@ async def session_segments(request: web.Request) -> web.Response:
         )
     try:
         return await session_segments_handler(data, session_id, request)
-    except APIError as e:
-        return build_error_response(e, request.app.get("debug_api", False))
     except Exception as e:
         log.exception("Error in session segments")
         return handle_api_exception(
@@ -1103,6 +1101,7 @@ async def session_segments(request: web.Request) -> web.Response:
         )
 
 
+@api_handler
 async def session_license(request: web.Request) -> web.Response:
     """
     Proxy DRM license through authenticated service.
@@ -1151,8 +1150,6 @@ async def session_license(request: web.Request) -> web.Response:
         )
     try:
         return await session_license_handler(data, session_id, request)
-    except APIError as e:
-        return build_error_response(e, request.app.get("debug_api", False))
     except Exception as e:
         log.exception("Error in session license")
         return handle_api_exception(
@@ -1160,6 +1157,7 @@ async def session_license(request: web.Request) -> web.Response:
         )
 
 
+@api_handler
 async def session_info(request: web.Request) -> web.Response:
     """
     Get session info.
@@ -1179,12 +1177,10 @@ async def session_info(request: web.Request) -> web.Response:
         description: Session not found
     """
     session_id = request.match_info["session_id"]
-    try:
-        return await session_info_handler(session_id, request)
-    except APIError as e:
-        return build_error_response(e, request.app.get("debug_api", False))
+    return await session_info_handler(session_id, request)
 
 
+@api_handler
 async def session_delete(request: web.Request) -> web.Response:
     """
     Delete a session.
@@ -1204,12 +1200,10 @@ async def session_delete(request: web.Request) -> web.Response:
         description: Session not found
     """
     session_id = request.match_info["session_id"]
-    try:
-        return await session_delete_handler(session_id, request)
-    except APIError as e:
-        return build_error_response(e, request.app.get("debug_api", False))
+    return await session_delete_handler(session_id, request)
 
 
+@api_handler
 async def session_prompt_get(request: web.Request) -> web.Response:
     """
     Poll for pending interactive prompts during authentication.
@@ -1245,8 +1239,6 @@ async def session_prompt_get(request: web.Request) -> web.Response:
     session_id = request.match_info["session_id"]
     try:
         return await session_prompt_get_handler(session_id, request)
-    except APIError as e:
-        return build_error_response(e, request.app.get("debug_api", False))
     except Exception as e:
         log.exception("Error in session prompt get")
         return handle_api_exception(
@@ -1254,6 +1246,7 @@ async def session_prompt_get(request: web.Request) -> web.Response:
         )
 
 
+@api_handler
 async def session_prompt_submit(request: web.Request) -> web.Response:
     """
     Submit a response to a pending interactive prompt.
@@ -1304,8 +1297,6 @@ async def session_prompt_submit(request: web.Request) -> web.Response:
         )
     try:
         return await session_prompt_post_handler(data, session_id, request)
-    except APIError as e:
-        return build_error_response(e, request.app.get("debug_api", False))
     except Exception as e:
         log.exception("Error in session prompt submit")
         return handle_api_exception(
@@ -1313,48 +1304,42 @@ async def session_prompt_submit(request: web.Request) -> web.Response:
         )
 
 
-def _setup_remote_session_routes(app: web.Application) -> None:
-    """Setup remote-DL session endpoints only."""
-    app.router.add_get("/api/health", health)
-    app.router.add_get("/api/services", services)
-    app.router.add_post("/api/search", search)
-    app.router.add_post("/api/session/create", session_create)
-    app.router.add_get("/api/session/{session_id}/titles", session_titles)
-    app.router.add_post("/api/session/{session_id}/tracks", session_tracks)
-    app.router.add_post("/api/session/{session_id}/segments", session_segments)
-    app.router.add_post("/api/session/{session_id}/license", session_license)
-    app.router.add_get("/api/session/{session_id}/prompt", session_prompt_get)
-    app.router.add_post("/api/session/{session_id}/prompt", session_prompt_submit)
-    app.router.add_get("/api/session/{session_id}", session_info)
-    app.router.add_delete("/api/session/{session_id}", session_delete)
+# Single source of truth for all API routes. `remote` marks endpoints exposed in
+# --remote-only server mode; full mode registers every route. Both setup_routes and
+# setup_swagger derive from this table so the live routes and the docs cannot drift.
+ROUTES: list[tuple[str, str, Handler, bool]] = [
+    ("GET", "/api/health", health, True),
+    ("GET", "/api/services", services, True),
+    ("POST", "/api/search", search, True),
+    ("POST", "/api/list-titles", list_titles, False),
+    ("POST", "/api/list-tracks", list_tracks, False),
+    ("POST", "/api/download", download, False),
+    ("GET", "/api/download/jobs", download_jobs, False),
+    ("GET", "/api/download/jobs/{job_id}", download_job_detail, False),
+    ("DELETE", "/api/download/jobs/{job_id}", cancel_download_job, False),
+    ("POST", "/api/session/create", session_create, True),
+    ("GET", "/api/session/{session_id}/titles", session_titles, True),
+    ("POST", "/api/session/{session_id}/tracks", session_tracks, True),
+    ("POST", "/api/session/{session_id}/segments", session_segments, True),
+    ("POST", "/api/session/{session_id}/license", session_license, True),
+    ("GET", "/api/session/{session_id}/prompt", session_prompt_get, True),
+    ("POST", "/api/session/{session_id}/prompt", session_prompt_submit, True),
+    ("GET", "/api/session/{session_id}", session_info, True),
+    ("DELETE", "/api/session/{session_id}", session_delete, True),
+]
 
 
 def setup_routes(app: web.Application, remote_only: bool = False) -> None:
     """Setup API routes. When remote_only=True, only expose remote session endpoints."""
-    if remote_only:
-        _setup_remote_session_routes(app)
-        return
-
-    app.router.add_get("/api/health", health)
-    app.router.add_get("/api/services", services)
-    app.router.add_post("/api/search", search)
-    app.router.add_post("/api/list-titles", list_titles)
-    app.router.add_post("/api/list-tracks", list_tracks)
-    app.router.add_post("/api/download", download)
-    app.router.add_get("/api/download/jobs", download_jobs)
-    app.router.add_get("/api/download/jobs/{job_id}", download_job_detail)
-    app.router.add_delete("/api/download/jobs/{job_id}", cancel_download_job)
-
-    # Remote-DL session endpoints
-    app.router.add_post("/api/session/create", session_create)
-    app.router.add_get("/api/session/{session_id}/titles", session_titles)
-    app.router.add_post("/api/session/{session_id}/tracks", session_tracks)
-    app.router.add_post("/api/session/{session_id}/segments", session_segments)
-    app.router.add_post("/api/session/{session_id}/license", session_license)
-    app.router.add_get("/api/session/{session_id}/prompt", session_prompt_get)
-    app.router.add_post("/api/session/{session_id}/prompt", session_prompt_submit)
-    app.router.add_get("/api/session/{session_id}", session_info)
-    app.router.add_delete("/api/session/{session_id}", session_delete)
+    add: dict[str, Callable[..., Any]] = {
+        "GET": app.router.add_get,
+        "POST": app.router.add_post,
+        "DELETE": app.router.add_delete,
+    }
+    for method, path, handler, remote in ROUTES:
+        if remote_only and not remote:
+            continue
+        add[method](path, handler)
 
 
 def setup_swagger(app: web.Application) -> None:
@@ -1369,27 +1354,5 @@ def setup_swagger(app: web.Application) -> None:
         ),
     )
 
-    # Add routes with OpenAPI documentation
-    swagger.add_routes(
-        [
-            web.get("/api/health", health),
-            web.get("/api/services", services),
-            web.post("/api/search", search),
-            web.post("/api/list-titles", list_titles),
-            web.post("/api/list-tracks", list_tracks),
-            web.post("/api/download", download),
-            web.get("/api/download/jobs", download_jobs),
-            web.get("/api/download/jobs/{job_id}", download_job_detail),
-            web.delete("/api/download/jobs/{job_id}", cancel_download_job),
-            # Remote-DL session endpoints
-            web.post("/api/session/create", session_create),
-            web.get("/api/session/{session_id}/titles", session_titles),
-            web.post("/api/session/{session_id}/tracks", session_tracks),
-            web.post("/api/session/{session_id}/segments", session_segments),
-            web.post("/api/session/{session_id}/license", session_license),
-            web.get("/api/session/{session_id}/prompt", session_prompt_get),
-            web.post("/api/session/{session_id}/prompt", session_prompt_submit),
-            web.get("/api/session/{session_id}", session_info),
-            web.delete("/api/session/{session_id}", session_delete),
-        ]
-    )
+    route: dict[str, Callable[..., Any]] = {"GET": web.get, "POST": web.post, "DELETE": web.delete}
+    swagger.add_routes([route[method](path, handler) for method, path, handler, _ in ROUTES])
