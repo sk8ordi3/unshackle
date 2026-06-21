@@ -250,6 +250,13 @@ def validate_service(service_tag: str, request: Optional[web.Request] = None) ->
 def serialize_title(title: Title_T) -> Dict[str, Any]:
     """Convert a title object to JSON-serializable dict."""
     title_language = str(title.language) if hasattr(title, "language") and title.language else None
+    # Optional display metadata a service may provide: a synopsis (title.description) and a
+    # release/air date or poster image URL stashed in title.data. Surfaced so a client can show
+    # a richer listing without re-fetching the page.
+    description = getattr(title, "description", None) or None
+    _data = getattr(title, "data", None)
+    date = _data.get("date") if isinstance(_data, dict) else None
+    cover_url = _data.get("cover_url") if isinstance(_data, dict) else None
 
     if isinstance(title, Episode):
         episode_name = title.name if title.name else f"Episode {title.number:02d}"
@@ -262,6 +269,9 @@ def serialize_title(title: Title_T) -> Dict[str, Any]:
             "year": title.year,
             "id": str(title.id) if hasattr(title, "id") else None,
             "language": title_language,
+            "description": description,
+            "date": date,
+            "cover_url": cover_url,
         }
     elif isinstance(title, Movie):
         result = {
@@ -270,6 +280,9 @@ def serialize_title(title: Title_T) -> Dict[str, Any]:
             "year": title.year,
             "id": str(title.id) if hasattr(title, "id") else None,
             "language": title_language,
+            "description": description,
+            "date": date,
+            "cover_url": cover_url,
         }
     else:
         result = {
@@ -277,6 +290,9 @@ def serialize_title(title: Title_T) -> Dict[str, Any]:
             "name": str(title.name) if hasattr(title, "name") else str(title),
             "id": str(title.id) if hasattr(title, "id") else None,
             "language": title_language,
+            "description": description,
+            "date": date,
+            "cover_url": cover_url,
         }
 
     return result
