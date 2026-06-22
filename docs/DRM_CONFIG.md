@@ -4,7 +4,7 @@ This document covers Digital Rights Management (DRM) and Content Decryption Modu
 
 ## cdm (dict)
 
-Pre-define which Widevine or PlayReady device to use for each Service by Service Tag as Key (case-sensitive).
+Pre-define which Widevine or PlayReady device to use for each Service by Service Tag as Key (case-insensitive).
 The value should be a WVD or PRD filename without the file extension. When
 loading the device, unshackle will look in both the `WVDs` and `PRDs` directories
 for a matching file.

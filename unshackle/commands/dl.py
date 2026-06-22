@@ -42,22 +42,14 @@ from rich.tree import Tree
 from unshackle.core import binaries, providers
 from unshackle.core.cdm import DecryptLabsRemoteCDM
 from unshackle.core.cdm.detect import is_playready_cdm, is_widevine_cdm
-from unshackle.core.config import config
+from unshackle.core.config import config, resolve_cdm_name, resolve_decryption
 from unshackle.core.console import console
 from unshackle.core.constants import DOWNLOAD_CANCELLED, DOWNLOAD_LICENCE_ONLY, AnyTrack, context_settings
 from unshackle.core.credential import Credential
 from unshackle.core.drm import DRM_T, ClearKeyCENC, MonaLisa, PlayReady, Widevine
 from unshackle.core.events import events
-from unshackle.core.music import (
-    MusicAudioIntegrityError,
-    MusicMetadataResult,
-    MusicPlanner,
-    MusicRenderer,
-    file_md5,
-    verify_music_audio,
-    write_music_manifest,
-    write_music_metadata,
-)
+from unshackle.core.music import (MusicAudioIntegrityError, MusicMetadataResult, MusicPlanner, MusicRenderer,
+                                  file_md5, verify_music_audio, write_music_manifest, write_music_metadata)
 from unshackle.core.proxies import Basic, ExpressVPN, Gluetun, Hola, NordVPN, SurfsharkVPN, WindscribeVPN
 from unshackle.core.service import Service
 from unshackle.core.services import Services
@@ -76,7 +68,7 @@ from unshackle.core.utils.bitrate import apply_real_bitrates
 from unshackle.core.utils.click_types import (AUDIO_CODEC_LIST, LANGUAGE_RANGE, QUALITY_LIST, SEASON_RANGE,
                                               SLOW_DELAY_RANGE, ContextData, MultipleChoice, MultipleVideoCodecChoice,
                                               SubtitleCodecChoice)
-from unshackle.core.utils.collections import merge_dict
+from unshackle.core.utils.collections import ci_get, merge_dict
 from unshackle.core.utils.selector import select_multiple
 from unshackle.core.utils.subprocess import ffprobe
 from unshackle.core.vaults import Vaults
@@ -908,9 +900,6 @@ class dl:
                 except KeyError:
                     pass
             merge_dict(config.services.get(self.service), self.service_config)
-
-        if getattr(config, "decryption_map", None):
-            config.decryption = config.decryption_map.get(self.service, config.decryption)
 
         service_config = config.services.get(self.service, {})
         if service_config:
@@ -2982,7 +2971,7 @@ class dl:
 
                 # Handle DRM decryption BEFORE repacking (must decrypt first!)
                 service_name = service.__class__.__name__.upper()
-                decryption_method = config.decryption_map.get(service_name, config.decryption)
+                decryption_method = resolve_decryption(config.decryption_map, config.decryption, service_name)
                 decrypt_tool = "mp4decrypt" if decryption_method.lower() == "mp4decrypt" else "Shaka Packager"
 
                 drm_tracks = [track for track in title.tracks if track.drm]
@@ -4187,7 +4176,7 @@ class dl:
             cookie_file.write_text(cookie_data, "utf8")
             cookie_jar.load(ignore_discard=True, ignore_expires=True)
             return cookie_jar
-            
+
         return None
 
     @staticmethod
@@ -4230,7 +4219,7 @@ class dl:
         """
         # A per-request override (set by the REST API per job) takes precedence over the
         # global config, so a job can select a specific CDM device without mutating shared state.
-        cdm_name = getattr(self, "cdm_override", None) or config.cdm.get(service) or config.cdm.get("default")
+        cdm_name = resolve_cdm_name(config.cdm, service, getattr(self, "cdm_override", None))
         if not cdm_name:
             return None
 
@@ -4308,7 +4297,7 @@ class dl:
                         }.get(drm.lower())
                     cdm_name = lower_keys.get(drm_key or "widevine") or lower_keys.get("playready")
                 else:
-                    cdm_name = cdm_name.get(profile) or cdm_name.get("default") or config.cdm.get("default")
+                    cdm_name = cdm_name.get(profile) or cdm_name.get("default") or ci_get(config.cdm, "default")
                 if not cdm_name:
                     return None
 

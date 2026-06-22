@@ -15,6 +15,7 @@ from unshackle.core.proxies.resolve import initialize_proxy_providers, resolve_p
 from unshackle.core.services import Services
 from unshackle.core.titles import Episode, Movie, Title_T
 from unshackle.core.tracks import Audio, Subtitle, Video
+from unshackle.core.utils.collections import ci_get
 
 log = logging.getLogger("api")
 
@@ -104,7 +105,7 @@ def load_full_cdm(service: str, profile: Optional[str], cdm_type: Optional[str] 
     from unshackle.core.cdm import load_cdm
     from unshackle.core.config import config as app_config
 
-    cdm_name = app_config.cdm.get(service) or app_config.cdm.get("default")
+    cdm_name = ci_get(app_config.cdm, service) or ci_get(app_config.cdm, "default")
     if isinstance(cdm_name, dict):
         lower_keys = {k.lower(): v for k, v in cdm_name.items()}
         if {"widevine", "playready"} & lower_keys.keys():
@@ -115,7 +116,7 @@ def load_full_cdm(service: str, profile: Optional[str], cdm_type: Optional[str] 
                 )
             cdm_name = lower_keys.get(drm_key or "widevine") or lower_keys.get("playready")
         else:
-            cdm_name = cdm_name.get(profile) or cdm_name.get("default") or app_config.cdm.get("default")
+            cdm_name = cdm_name.get(profile) or cdm_name.get("default") or ci_get(app_config.cdm, "default")
 
     if not cdm_name or not isinstance(cdm_name, str):
         return _resolve_server_cdm(service, profile, cdm_type)
@@ -1625,7 +1626,7 @@ def _resolve_server_cdm(service: str, profile: Optional[str], cdm_type: Optional
     """
     from unshackle.core.config import config as app_config
 
-    cdm_name = app_config.cdm.get(service)
+    cdm_name = ci_get(app_config.cdm, service)
     if cdm_name:
         if isinstance(cdm_name, dict):
             lower_keys = {k.lower(): v for k, v in cdm_name.items()}
@@ -1646,7 +1647,7 @@ def _resolve_server_cdm(service: str, profile: Optional[str], cdm_type: Optional
 
 def _detect_cdm_type_for_service(service: str, app_config: Any) -> Optional[str]:
     """Detect the CDM type configured for a service in config.cdm."""
-    cdm_name = app_config.cdm.get(service)
+    cdm_name = ci_get(app_config.cdm, service)
     if not cdm_name:
         return None
     if isinstance(cdm_name, dict):
@@ -1899,11 +1900,11 @@ def _resolve_device_name(user_config: dict, drm_type: str, service_tag: str = ""
     """
     from unshackle.core.config import config as app_config
 
-    cdm_name = app_config.cdm.get(service_tag) if service_tag else None
+    cdm_name = ci_get(app_config.cdm, service_tag) if service_tag else None
     if isinstance(cdm_name, dict):
         drm_key = {"widevine": "widevine", "playready": "playready"}.get(drm_type)
         lower_keys = {k.lower(): v for k, v in cdm_name.items()}
-        cdm_name = lower_keys.get(drm_key) or lower_keys.get("default") or app_config.cdm.get("default")
+        cdm_name = lower_keys.get(drm_key) or lower_keys.get("default") or ci_get(app_config.cdm, "default")
     if cdm_name and isinstance(cdm_name, str):
         return cdm_name
 

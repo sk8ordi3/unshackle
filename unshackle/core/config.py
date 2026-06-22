@@ -8,6 +8,18 @@ from typing import Any, Optional
 import yaml
 from appdirs import AppDirs
 
+from unshackle.core.utils.collections import ci_get
+
+
+def resolve_decryption(decryption_map: dict, default: str, service: str) -> str:
+    """Pick the decryption tool for a service (case-insensitive), falling back to default."""
+    return ci_get(decryption_map, service, default)
+
+
+def resolve_cdm_name(cdm: dict, service: str, override: Any = None) -> Any:
+    """Resolve a service's top-level CDM entry (case-insensitive), with default fallback."""
+    return override or ci_get(cdm, service) or ci_get(cdm, "default")
+
 
 class Config:
     class _Directories:

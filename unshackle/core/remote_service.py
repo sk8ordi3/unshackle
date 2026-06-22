@@ -435,7 +435,6 @@ class RemoteService:
         config_maps = {
             "cdm": ("cdm", self.service_tag),
             "decryption": ("decryption_map", self.service_tag),
-            "downloader": ("downloader_map", self.service_tag),
         }
         for key, (attr, tag) in config_maps.items():
             if svc_config.get(key):
@@ -445,8 +444,6 @@ class RemoteService:
                     target = getattr(config, attr)
                 target[tag] = svc_config[key]
 
-        if svc_config.get("downloader"):
-            config.downloader = svc_config["downloader"]
         if svc_config.get("decryption"):
             config.decryption = svc_config["decryption"]
 
