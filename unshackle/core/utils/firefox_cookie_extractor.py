@@ -3,14 +3,14 @@ Firefox Cookie and LocalStorage Extractor Utility for unshackle.
 Provides a secure, read-only mechanism to extract authentication tokens from Firefox.
 """
 
-import sqlite3
-import platform
 import os
+import platform
 import shutil
+import sqlite3
 import tempfile
+from http.cookiejar import Cookie, CookieJar
 from pathlib import Path
-from http.cookiejar import CookieJar, Cookie
-from typing import Dict, Optional, List
+from typing import Dict, List, Optional
 
 
 def get_firefox_root() -> Path:
@@ -41,7 +41,7 @@ def get_latest_profile_path(ff_root: Path) -> Path:
     for base in search_dirs:
         if base.exists():
             valid_profiles.extend([p for p in base.iterdir() if p.is_dir() and (p / 'cookies.sqlite').exists()])
-    
+
     if not valid_profiles:
         raise FileNotFoundError("No active Firefox profiles detected.")
 
@@ -56,29 +56,29 @@ def get_local_storage_data(profile_path: Path, hosts: List[str], tmp_dir_path: P
     ls_db = profile_path / 'webappsstore.sqlite'
     if not ls_db.exists():
         return {}
-        
+
     temp_ls = tmp_dir_path / "webappsstore.sqlite"
     extracted_storage = {}
-    
+
     try:
         shutil.copy2(ls_db, temp_ls)
         conn = sqlite3.connect(temp_ls)
         cursor = conn.cursor()
-        
+
         for host in hosts:
             # Firefox stores LocalStorage as reversed host (e.g., moc.viki.:https:443)
             # Use strict prefix matching to prevent over-broad harvesting
             reversed_host = host[::-1]
             query = "SELECT key, value FROM webappsstore2 WHERE originKey LIKE ?"
             cursor.execute(query, (f"{reversed_host}.%",))
-            
+
             for key, value in cursor.fetchall():
                 extracted_storage[key] = value
-                
+
         conn.close()
     except Exception:
         pass
-            
+
     return extracted_storage
 
 
@@ -99,14 +99,14 @@ def get_firefox_cookies(service_settings: dict) -> Optional[CookieJar]:
         profile_path = get_latest_profile_path(get_firefox_root())
     except Exception:
         return None
-    
+
     cookie_jar = CookieJar()
 
     # Use a secure temporary directory with restricted permissions (Finding #5)
     with tempfile.TemporaryDirectory(prefix="unshackle_ff_") as tmp_dir:
         tmp_dir_path = Path(tmp_dir)
-        os.chmod(tmp_dir, 0o700) 
-        
+        os.chmod(tmp_dir, 0o700)
+
         temp_db = tmp_dir_path / "cookies.sqlite"
         temp_wal = tmp_dir_path / "cookies.sqlite-wal"
 
@@ -123,8 +123,8 @@ def get_firefox_cookies(service_settings: dict) -> Optional[CookieJar]:
             for host in priority_hosts:
                 # Precise matching: exact host or dot-prefixed domain suffix (Finding #2)
                 query = """
-                    SELECT host, name, value, path, expiry, isSecure, isHttpOnly 
-                    FROM moz_cookies 
+                    SELECT host, name, value, path, expiry, isSecure, isHttpOnly
+                    FROM moz_cookies
                     WHERE host = ? OR host LIKE ?
                 """
                 cursor.execute(query, (host, f"%.{host}"))
@@ -137,7 +137,7 @@ def get_firefox_cookies(service_settings: dict) -> Optional[CookieJar]:
                             version=0, name=n, value=v, port=None, port_specified=False,
                             domain=h, domain_specified=True, domain_initial_dot=h.startswith('.'),
                             path=p, path_specified=True, secure=bool(secure), expires=e,
-                            discard=False, comment=None, comment_url=None, 
+                            discard=False, comment=None, comment_url=None,
                             rest={'HttpOnly': str(bool(httponly))}, rfc2109=False
                         )
                         cookie_jar.set_cookie(c)
