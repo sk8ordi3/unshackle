@@ -3615,22 +3615,26 @@ class dl:
             if isinstance(drm, Widevine):
                 if not is_widevine_cdm(self.cdm):
                     widevine_cdm = self.get_cdm(self.service, self.profile, drm="widevine", quality=track_quality)
-                    if widevine_cdm:
+                    if widevine_cdm and is_widevine_cdm(widevine_cdm):
                         if track_quality:
                             self.log.info(f"Switching to Widevine CDM for Widevine {track_quality}p content")
                         else:
                             self.log.info("Switching to Widevine CDM for Widevine content")
                         self.cdm = widevine_cdm
+                    else:
+                        raise ValueError(f"Title needs a Widevine CDM but {self.service} is configured with PlayReady.")
 
             elif isinstance(drm, PlayReady):
                 if not is_playready_cdm(self.cdm):
                     playready_cdm = self.get_cdm(self.service, self.profile, drm="playready", quality=track_quality)
-                    if playready_cdm:
+                    if playready_cdm and is_playready_cdm(playready_cdm):
                         if track_quality:
                             self.log.info(f"Switching to PlayReady CDM for PlayReady {track_quality}p content")
                         else:
                             self.log.info("Switching to PlayReady CDM for PlayReady content")
                         self.cdm = playready_cdm
+                    else:
+                        raise ValueError(f"Title needs a PlayReady CDM but {self.service} is configured with Widevine.")
 
         if isinstance(drm, Widevine):
             if self.debug_logger:
