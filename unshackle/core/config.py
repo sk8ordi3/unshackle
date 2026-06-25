@@ -213,7 +213,11 @@ class Config:
                     warnings.warn(f"Unknown template variable '{var}' in {template_type} template")
 
             test_template = re.sub(r"\{[^}]+\}", "TEST", template_str)
-            if re.search(unsafe_chars, test_template):
+            if template_type.startswith("folder"):
+                unsafe_segment = any(re.search(unsafe_chars, seg) for seg in re.split(r"[\\/]", test_template))
+            else:
+                unsafe_segment = bool(re.search(unsafe_chars, test_template))
+            if unsafe_segment:
                 warnings.warn(f"Template '{template_type}' may contain filesystem-unsafe characters")
 
             if not template_str.strip():
